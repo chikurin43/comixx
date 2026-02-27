@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ComixX | マイページ</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <nav>
+        <a class="brand" href="index.html">ComixX</a>
+        <ul>
+          <li><a href="login.html">ログイン</a></li>
+          <li><a href="main.html">メイン</a></li>
+          <li><a href="palette.html">パレット</a></li>
+          <li><a href="mypage.html">マイページ</a></li>
+        </ul>
+      </nav>
+    </header>
+
+    <main class="split">
+      <section class="panel">
+        <h1>参加中のパレット</h1>
+        <div class="list">
+          <article class="card">
+            <h3>学園SFミステリー</h3>
+            <p class="small">あなたの役割：ストーリー議論 + 投票</p>
+            <a class="button secondary" href="palette.html">開く</a>
+          </article>
+          <article class="card">
+            <h3>深海コロニー冒険記</h3>
+            <p class="small">あなたの役割：漫画作画担当</p>
+            <a class="button secondary" href="palette.html">開く</a>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>アカウント管理</h2>
+        <form>
+          <label>
+            表示名
+            <input type="text" value="comixx_user01" />
+          </label>
+          <label>
+            プロフィール
+            <textarea placeholder="得意ジャンルや自己紹介"></textarea>
+          </label>
+          <label>
+            メール通知設定
+            <select>
+              <option>すべて受け取る</option>
+              <option>投票開始のみ受け取る</option>
+              <option>受け取らない</option>
+            </select>
+          </label>
+          <button class="button" type="button">保存する</button>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>

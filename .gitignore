@@ -4,3 +4,7 @@ out
 npm-debug.log*
 .env.local
 .env
+
+coverage
+playwright-report
+test-results

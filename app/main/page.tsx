@@ -1,35 +1,68 @@
-import Link from "next/link";
+"use client";
 
-const palettes = [
-  { id: "gakuen-sf", title: "学園SFミステリー", stats: "参加者 12名 / 最新投票: 主人公の正体" },
-  { id: "kansai-hero", title: "関西弁ヒーロー日常譚", stats: "参加者 8名 / 最新投票: 新キャラ登場回" },
-  { id: "deepsea", title: "深海コロニー冒険記", stats: "参加者 20名 / 最新投票: 第3話ラストの展開" },
-];
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { AuthGate } from "@/components/auth/AuthGate";
+import { SupabaseProbeCard } from "@/components/SupabaseProbeCard";
+import { apiFetch } from "@/lib/api/client";
+import type { ApiPaletteList, Palette } from "@/lib/types";
+
+const defaultPalettes: Palette[] = [];
 
 export default function MainPage() {
+  const [palettes, setPalettes] = useState<Palette[]>(defaultPalettes);
+  const [errorText, setErrorText] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const loadPalettes = async () => {
+    setLoading(true);
+    const response = await apiFetch<ApiPaletteList>("/api/palettes", "GET");
+
+    if (!response.success) {
+      setErrorText(response.error.message);
+      setLoading(false);
+      return;
+    }
+
+    setPalettes(response.data.palettes);
+    setErrorText("");
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    void loadPalettes();
+  }, []);
+
   return (
-    <main className="split">
-      <section className="panel">
-        <h1>パレットを作成</h1>
-        <form>
-          <label>パレット名<input type="text" placeholder="例：学園SF編" /></label>
-          <label>ジャンル<select><option>バトル</option><option>ラブコメ</option><option>SF</option><option>ホラー</option></select></label>
-          <label>説明<textarea placeholder="このパレットで作りたい作品の方向性" /></label>
-          <button className="button" type="button">作成する</button>
-        </form>
-      </section>
-      <section className="panel">
-        <h2>公開中のパレット一覧</h2>
-        <div className="list">
-          {palettes.map((palette) => (
-            <article className="card" key={palette.id}>
-              <h3>{palette.title}</h3>
-              <p className="small">{palette.stats}</p>
-              <Link className="button secondary" href={`/palette/${palette.id}`}>参加する</Link>
-            </article>
-          ))}
-        </div>
-      </section>
-    </main>
+    <AuthGate>
+      <main>
+        <section className="panel">
+          <div className="panel-header">
+            <h2>公開中のパレット一覧</h2>
+            <Link className="button" href="/palette/new">
+              パレット作成
+            </Link>
+          </div>
+          <details>
+            <summary>Supabase診断（開発用）</summary>
+            <SupabaseProbeCard />
+          </details>
+          {errorText ? <p className="small error-text">{errorText}</p> : null}
+          {loading ? <p className="small">読み込み中...</p> : null}
+          <div className="list">
+            {palettes.map((palette) => (
+              <article className="card" key={palette.id}>
+                <h3>{palette.title}</h3>
+                <p className="small">ジャンル: {palette.genre}</p>
+                <p className="small">{palette.description || "説明なし"}</p>
+                <Link className="button secondary" href={`/palette/${palette.id}`}>
+                  参加する
+                </Link>
+              </article>
+            ))}
+          </div>
+        </section>
+      </main>
+    </AuthGate>
   );
 }

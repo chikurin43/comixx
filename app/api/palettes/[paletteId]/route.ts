@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { failure, success } from "@/lib/api/response";
 import { createSupabaseRouteClient } from "@/lib/supabase/route-client";
 
+const profileColumns = "id,public_id,display_name,avatar_url,bio,notifications,visibility,created_at,updated_at";
+
 export async function GET(request: NextRequest, { params }: { params: { paletteId: string } }) {
   try {
     const supabase = createSupabaseRouteClient(request);
@@ -18,7 +20,7 @@ export async function GET(request: NextRequest, { params }: { params: { paletteI
 
     const { data: ownerProfile } = await supabase
       .from("profiles")
-      .select("id,display_name,avatar_url,bio,notifications,visibility,created_at,updated_at")
+      .select(profileColumns)
       .eq("id", palette.owner_id)
       .maybeSingle();
 

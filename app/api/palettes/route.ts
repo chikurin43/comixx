@@ -3,6 +3,8 @@ import { createSupabaseRouteClient, requireAuthUser } from "@/lib/supabase/route
 import { failure, success } from "@/lib/api/response";
 import { validateRequiredText } from "@/lib/validation";
 
+const profileColumns = "id,public_id,display_name,avatar_url,bio,notifications,visibility,created_at,updated_at";
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = createSupabaseRouteClient(request);
@@ -20,7 +22,7 @@ export async function GET(request: NextRequest) {
     const { data: ownerProfiles } = ownerIds.length
       ? await supabase
           .from("profiles")
-          .select("id,display_name,avatar_url,bio,notifications,visibility,created_at,updated_at")
+          .select(profileColumns)
           .in("id", ownerIds)
       : { data: [] as any[] };
 
@@ -80,6 +82,16 @@ export async function POST(request: NextRequest) {
         role: "owner",
       },
       { onConflict: "palette_id,user_id" },
+    );
+
+    await auth.supabase.from("palette_channels").upsert(
+      {
+        palette_id: data.id,
+        name: "general",
+        description: "Default channel",
+        created_by: auth.user.id,
+      },
+      { onConflict: "palette_id,name" },
     );
 
     return NextResponse.json(success({ palette: data }), { status: 201 });

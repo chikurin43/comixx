@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AuthGate } from "@/components/auth/AuthGate";
 import { SupabaseProbeCard } from "@/components/SupabaseProbeCard";
-import { apiFetch } from "@/lib/api/client";
+import { apiGet } from "@/lib/api/client";
 import type { ApiPaletteList, Palette } from "@/lib/types";
 
 const defaultPalettes: Palette[] = [];
@@ -14,9 +14,9 @@ export default function MainPage() {
   const [errorText, setErrorText] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const loadPalettes = async () => {
+  const loadPalettes = useCallback(async () => {
     setLoading(true);
-    const response = await apiFetch<ApiPaletteList>("/api/palettes", "GET");
+    const response = await apiGet<ApiPaletteList>("/api/palettes");
 
     if (!response.success) {
       setErrorText(response.error.message);
@@ -27,11 +27,11 @@ export default function MainPage() {
     setPalettes(response.data.palettes);
     setErrorText("");
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     void loadPalettes();
-  }, []);
+  }, [loadPalettes]);
 
   return (
     <AuthGate>

@@ -1,8 +1,9 @@
--- ComixX schema with profile/member/chat enhancements
+-- ComixX schema with profile/member/chat/poll enhancements
 create extension if not exists pgcrypto;
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
+  public_id text unique,
   display_name text,
   avatar_url text,
   bio text,
@@ -11,6 +12,10 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.profiles add column if not exists public_id text;
+
+create unique index if not exists profiles_public_id_unique on public.profiles (public_id) where public_id is not null;
 
 create table if not exists public.palettes (
   id uuid primary key default gen_random_uuid(),
@@ -30,14 +35,58 @@ create table if not exists public.palette_members (
   primary key (palette_id, user_id)
 );
 
+create table if not exists public.palette_channels (
+  id uuid primary key default gen_random_uuid(),
+  palette_id uuid not null references public.palettes(id) on delete cascade,
+  name text not null,
+  description text,
+  created_by uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (palette_id, name)
+);
+
+create table if not exists public.palette_polls (
+  id uuid primary key default gen_random_uuid(),
+  palette_id uuid not null references public.palettes(id) on delete cascade,
+  title text not null,
+  description text,
+  created_by uuid not null references auth.users(id) on delete cascade,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.palette_poll_options (
+  id uuid primary key default gen_random_uuid(),
+  poll_id uuid not null references public.palette_polls(id) on delete cascade,
+  label text not null,
+  sort_order integer not null default 0
+);
+
 create table if not exists public.messages (
   id uuid primary key default gen_random_uuid(),
   palette_id uuid not null references public.palettes(id) on delete cascade,
+  channel_id uuid references public.palette_channels(id) on delete set null,
   user_id uuid not null references auth.users(id) on delete cascade,
   content text not null,
   reply_to_id uuid references public.messages(id) on delete set null,
   created_at timestamptz not null default now()
 );
+
+alter table public.messages add column if not exists channel_id uuid;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'messages_channel_id_fkey'
+  ) then
+    alter table public.messages
+      add constraint messages_channel_id_fkey
+      foreign key (channel_id) references public.palette_channels(id)
+      on delete set null;
+  end if;
+end $$;
 
 create table if not exists public.message_reactions (
   id uuid primary key default gen_random_uuid(),
@@ -52,6 +101,7 @@ create table if not exists public.message_reactions (
 create table if not exists public.votes (
   id uuid primary key default gen_random_uuid(),
   palette_id uuid not null references public.palettes(id) on delete cascade,
+  poll_id uuid references public.palette_polls(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
   topic text not null,
   option_key text not null,
@@ -59,13 +109,38 @@ create table if not exists public.votes (
   unique (palette_id, user_id, topic)
 );
 
+alter table public.votes add column if not exists poll_id uuid;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'votes_poll_id_fkey'
+  ) then
+    alter table public.votes
+      add constraint votes_poll_id_fkey
+      foreign key (poll_id) references public.palette_polls(id)
+      on delete cascade;
+  end if;
+end $$;
+
+create unique index if not exists votes_poll_user_unique on public.votes (poll_id, user_id) where poll_id is not null;
+
 create index if not exists messages_palette_created_idx on public.messages (palette_id, created_at);
+create index if not exists messages_palette_channel_created_idx on public.messages (palette_id, channel_id, created_at);
 create index if not exists members_palette_idx on public.palette_members (palette_id, joined_at);
 create index if not exists reactions_palette_idx on public.message_reactions (palette_id, created_at);
+create index if not exists channels_palette_idx on public.palette_channels (palette_id, created_at);
+create index if not exists polls_palette_idx on public.palette_polls (palette_id, created_at);
+create index if not exists poll_options_poll_idx on public.palette_poll_options (poll_id, sort_order);
 
 alter table public.profiles enable row level security;
 alter table public.palettes enable row level security;
 alter table public.palette_members enable row level security;
+alter table public.palette_channels enable row level security;
+alter table public.palette_polls enable row level security;
+alter table public.palette_poll_options enable row level security;
 alter table public.messages enable row level security;
 alter table public.message_reactions enable row level security;
 alter table public.votes enable row level security;
@@ -163,6 +238,167 @@ create policy "owner delete members"
     exists (
       select 1 from public.palettes p
       where p.id = palette_members.palette_id
+        and p.owner_id = auth.uid()
+    )
+  );
+
+drop policy if exists "channels readable for public palettes" on public.palette_channels;
+create policy "channels readable for public palettes"
+  on public.palette_channels
+  for select
+  to authenticated, anon
+  using (
+    exists (
+      select 1 from public.palettes p
+      where p.id = palette_channels.palette_id
+        and p.is_public = true
+    )
+  );
+
+drop policy if exists "owner create channels" on public.palette_channels;
+create policy "owner create channels"
+  on public.palette_channels
+  for insert
+  to authenticated
+  with check (
+    exists (
+      select 1 from public.palettes p
+      where p.id = palette_channels.palette_id
+        and p.owner_id = auth.uid()
+    )
+    and auth.uid() = created_by
+  );
+
+drop policy if exists "owner update channels" on public.palette_channels;
+create policy "owner update channels"
+  on public.palette_channels
+  for update
+  to authenticated
+  using (
+    exists (
+      select 1 from public.palettes p
+      where p.id = palette_channels.palette_id
+        and p.owner_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.palettes p
+      where p.id = palette_channels.palette_id
+        and p.owner_id = auth.uid()
+    )
+  );
+
+drop policy if exists "owner delete channels" on public.palette_channels;
+create policy "owner delete channels"
+  on public.palette_channels
+  for delete
+  to authenticated
+  using (
+    exists (
+      select 1 from public.palettes p
+      where p.id = palette_channels.palette_id
+        and p.owner_id = auth.uid()
+    )
+  );
+
+drop policy if exists "polls readable for public palettes" on public.palette_polls;
+create policy "polls readable for public palettes"
+  on public.palette_polls
+  for select
+  to authenticated, anon
+  using (
+    exists (
+      select 1 from public.palettes p
+      where p.id = palette_polls.palette_id
+        and p.is_public = true
+    )
+  );
+
+drop policy if exists "owner create polls" on public.palette_polls;
+create policy "owner create polls"
+  on public.palette_polls
+  for insert
+  to authenticated
+  with check (
+    exists (
+      select 1 from public.palettes p
+      where p.id = palette_polls.palette_id
+        and p.owner_id = auth.uid()
+    )
+    and auth.uid() = created_by
+  );
+
+drop policy if exists "owner update polls" on public.palette_polls;
+create policy "owner update polls"
+  on public.palette_polls
+  for update
+  to authenticated
+  using (
+    exists (
+      select 1 from public.palettes p
+      where p.id = palette_polls.palette_id
+        and p.owner_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.palettes p
+      where p.id = palette_polls.palette_id
+        and p.owner_id = auth.uid()
+    )
+  );
+
+drop policy if exists "poll options readable" on public.palette_poll_options;
+create policy "poll options readable"
+  on public.palette_poll_options
+  for select
+  to authenticated, anon
+  using (
+    exists (
+      select 1
+      from public.palette_polls pp
+      join public.palettes p on p.id = pp.palette_id
+      where pp.id = palette_poll_options.poll_id
+        and p.is_public = true
+    )
+  );
+
+drop policy if exists "owner create poll options" on public.palette_poll_options;
+create policy "owner create poll options"
+  on public.palette_poll_options
+  for insert
+  to authenticated
+  with check (
+    exists (
+      select 1
+      from public.palette_polls pp
+      join public.palettes p on p.id = pp.palette_id
+      where pp.id = palette_poll_options.poll_id
+        and p.owner_id = auth.uid()
+    )
+  );
+
+drop policy if exists "owner update poll options" on public.palette_poll_options;
+create policy "owner update poll options"
+  on public.palette_poll_options
+  for update
+  to authenticated
+  using (
+    exists (
+      select 1
+      from public.palette_polls pp
+      join public.palettes p on p.id = pp.palette_id
+      where pp.id = palette_poll_options.poll_id
+        and p.owner_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.palette_polls pp
+      join public.palettes p on p.id = pp.palette_id
+      where pp.id = palette_poll_options.poll_id
         and p.owner_id = auth.uid()
     )
   );
@@ -303,5 +539,32 @@ begin
       and tablename = 'message_reactions'
   ) then
     alter publication supabase_realtime add table public.message_reactions;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'palette_channels'
+  ) then
+    alter publication supabase_realtime add table public.palette_channels;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'palette_polls'
+  ) then
+    alter publication supabase_realtime add table public.palette_polls;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'palette_poll_options'
+  ) then
+    alter publication supabase_realtime add table public.palette_poll_options;
   end if;
 end $$;

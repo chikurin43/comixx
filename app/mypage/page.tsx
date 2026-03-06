@@ -1,16 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { AuthGate } from "@/components/auth/AuthGate";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { UserAvatar } from "@/components/chat/UserAvatar";
-import { apiFetch } from "@/lib/api/client";
-import { formatDisplayName } from "@/lib/chat/format";
+import { apiGet, apiPut } from "@/lib/api/client";
+import { formatDisplayName, formatPublicId } from "@/lib/chat/format";
 import { getBrowserSupabaseClient } from "@/lib/supabase/browser-client";
-import type { ApiMessageList, ApiPaletteList, ApiProfile, Message, Palette } from "@/lib/types";
+import { validatePublicId } from "@/lib/validation";
+import type { ApiMessageList, ApiPaletteList, ApiProfile, Message, Palette, UserProfile } from "@/lib/types";
 
 type SettingsState = {
+  publicId: string;
   displayName: string;
   avatarUrl: string;
   bio: string;
@@ -19,12 +21,25 @@ type SettingsState = {
 };
 
 const defaultSettings: SettingsState = {
+  publicId: "",
   displayName: "",
   avatarUrl: "",
   bio: "",
   notifications: "all",
   visibility: "public",
 };
+
+function profileToSettings(profile: UserProfile): SettingsState {
+  return {
+    publicId: profile.public_id ?? "",
+    displayName: profile.display_name ?? "",
+    avatarUrl: profile.avatar_url ?? "",
+    bio: profile.bio ?? "",
+    notifications:
+      profile.notifications === "vote-only" || profile.notifications === "none" ? profile.notifications : "all",
+    visibility: profile.visibility === "private" ? "private" : "public",
+  };
+}
 
 export default function MyPage() {
   const { user, signOut } = useAuth();
@@ -35,46 +50,50 @@ export default function MyPage() {
   const [password, setPassword] = useState("");
   const [accountMessage, setAccountMessage] = useState("");
 
-  useEffect(() => {
-    const bootstrap = async () => {
-      const profileResponse = await apiFetch<ApiProfile>("/api/profile", "GET");
-      if (profileResponse.success) {
-        const profile = profileResponse.data.profile;
-        setSettings({
-          displayName: profile.display_name ?? "",
-          avatarUrl: profile.avatar_url ?? "",
-          bio: profile.bio ?? "",
-          notifications:
-            profile.notifications === "vote-only" || profile.notifications === "none"
-              ? profile.notifications
-              : "all",
-          visibility: profile.visibility === "private" ? "private" : "public",
-        });
-      }
+  const loadMyPage = useCallback(async () => {
+    const [profileResponse, paletteResponse] = await Promise.all([
+      apiGet<ApiProfile>("/api/profile"),
+      apiGet<ApiPaletteList>("/api/palettes"),
+    ]);
 
-      const paletteResponse = await apiFetch<ApiPaletteList>("/api/palettes", "GET");
-      if (!paletteResponse.success) {
-        setErrorText(paletteResponse.error.message);
-        return;
-      }
+    if (profileResponse.success) {
+      setSettings(profileToSettings(profileResponse.data.profile));
+    }
 
-      setPalettes(paletteResponse.data.palettes);
+    if (!paletteResponse.success) {
+      setErrorText(paletteResponse.error.message);
+      setPalettes([]);
+      setMyMessages([]);
+      return;
+    }
 
-      const messageJobs = paletteResponse.data.palettes.slice(0, 12).map((palette) =>
-        apiFetch<ApiMessageList>(`/api/messages?paletteId=${palette.id}`, "GET"),
-      );
-      const messageResponses = await Promise.all(messageJobs);
+    const paletteItems = paletteResponse.data.palettes;
+    setPalettes(paletteItems);
+    setErrorText("");
 
-      const messages = messageResponses
-        .flatMap((response) => (response.success ? response.data.messages : []))
-        .filter((message) => message.user_id === user?.id)
-        .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    const messageJobs = paletteItems
+      .slice(0, 12)
+      .map((palette) => apiGet<ApiMessageList>(`/api/messages?paletteId=${palette.id}`));
 
-      setMyMessages(messages.slice(0, 10));
-    };
+    const messageResponses = await Promise.allSettled(messageJobs);
 
-    void bootstrap();
+    const messages = messageResponses
+      .flatMap((result) => {
+        if (result.status !== "fulfilled" || !result.value.success) {
+          return [];
+        }
+
+        return result.value.data.messages;
+      })
+      .filter((message) => message.user_id === user?.id)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+
+    setMyMessages(messages.slice(0, 10));
   }, [user?.id]);
+
+  useEffect(() => {
+    void loadMyPage();
+  }, [loadMyPage]);
 
   const ownedPalettes = useMemo(
     () => palettes.filter((palette) => palette.owner_id === user?.id),
@@ -83,9 +102,16 @@ export default function MyPage() {
 
   const handleProfileSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (!validatePublicId(settings.publicId)) {
+      setAccountMessage("ユーザーIDは3-24文字、英数字と_のみ使用できます。");
+      return;
+    }
+
     setAccountMessage("保存中...");
 
-    const response = await apiFetch<ApiProfile>("/api/profile", "PUT", {
+    const response = await apiPut<ApiProfile>("/api/profile", {
+      publicId: settings.publicId,
       displayName: settings.displayName,
       avatarUrl: settings.avatarUrl,
       bio: settings.bio,
@@ -98,6 +124,7 @@ export default function MyPage() {
       return;
     }
 
+    setSettings((prev) => ({ ...prev, publicId: response.data.profile.public_id ?? prev.publicId }));
     setAccountMessage("プロフィール設定を保存しました。");
   };
 
@@ -121,7 +148,8 @@ export default function MyPage() {
     setAccountMessage("パスワードを更新しました。");
   };
 
-  const displayName = formatDisplayName(settings.displayName, user?.id ?? "unknown");
+  const publicId = formatPublicId(settings.publicId, user?.id ?? "unknown");
+  const displayName = formatDisplayName(settings.displayName, publicId);
 
   return (
     <AuthGate>
@@ -159,13 +187,26 @@ export default function MyPage() {
           <p className="small">メール: {user?.email ?? "-"}</p>
 
           <div className="profile-icon-area">
-            <UserAvatar displayName={displayName} userId={user?.id ?? "unknown"} avatarUrl={settings.avatarUrl || null} />
-            <Link className="button secondary" href={`/users/${user?.id ?? ""}`}>
+            <UserAvatar displayName={displayName} userId={publicId} avatarUrl={settings.avatarUrl || null} />
+            <Link className="button secondary" href={`/users/${publicId}`}>
               公開プロフィールを見る
             </Link>
           </div>
 
           <form onSubmit={handleProfileSave}>
+            <label>
+              ユーザーID（公開）
+              <input
+                type="text"
+                value={settings.publicId}
+                onChange={(event) => setSettings((prev) => ({ ...prev, publicId: event.target.value }))}
+                minLength={3}
+                maxLength={24}
+                pattern="[A-Za-z0-9_]+"
+                placeholder="comixx_user"
+                required
+              />
+            </label>
             <label>
               表示名
               <input

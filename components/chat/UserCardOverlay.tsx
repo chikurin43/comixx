@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { UserProfile } from "@/lib/types";
-import { formatDisplayName } from "@/lib/chat/format";
+import { formatDisplayName, formatPublicId } from "@/lib/chat/format";
 import { UserAvatar } from "@/components/chat/UserAvatar";
 
 type UserCardOverlayProps = {
@@ -13,21 +13,22 @@ type UserCardOverlayProps = {
 };
 
 export function UserCardOverlay({ profile, userId, position, onClose }: UserCardOverlayProps) {
-  const displayName = formatDisplayName(profile?.display_name, userId);
+  const publicId = formatPublicId(profile?.public_id, userId);
+  const displayName = formatDisplayName(profile?.display_name, publicId);
 
   return (
     <>
       <button className="overlay-backdrop" onClick={onClose} type="button" aria-label="閉じる" />
       <section className="user-overlay-card" style={{ left: position.x, top: position.y }}>
         <div className="user-overlay-head">
-          <UserAvatar displayName={displayName} userId={userId} avatarUrl={profile?.avatar_url} />
+          <UserAvatar displayName={displayName} userId={publicId} avatarUrl={profile?.avatar_url} />
           <div>
             <h4>{displayName}</h4>
-            <p className="small">@{userId.slice(0, 8)}</p>
+            <p className="small">@{publicId}</p>
           </div>
         </div>
         <p className="small">{profile?.bio || "自己紹介はまだ設定されていません。"}</p>
-        <Link className="button secondary" href={`/users/${userId}`}>
+        <Link className="button secondary" href={`/users/${publicId}`}>
           ユーザーページを開く
         </Link>
       </section>

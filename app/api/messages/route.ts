@@ -3,19 +3,29 @@ import { createSupabaseRouteClient, requireAuthUser } from "@/lib/supabase/route
 import { failure, success } from "@/lib/api/response";
 import { validateRequiredText } from "@/lib/validation";
 
+const profileColumns = "id,public_id,display_name,avatar_url,bio,notifications,visibility,created_at,updated_at";
+
 export async function GET(request: NextRequest) {
   const paletteId = request.nextUrl.searchParams.get("paletteId");
+  const channelId = request.nextUrl.searchParams.get("channelId");
+
   if (!paletteId) {
     return NextResponse.json(failure("INVALID_INPUT", "paletteId is required."), { status: 400 });
   }
 
   try {
     const supabase = createSupabaseRouteClient(request);
-    const { data, error } = await supabase
+    let query = supabase
       .from("messages")
-      .select("id,palette_id,user_id,content,reply_to_id,created_at")
+      .select("id,palette_id,channel_id,user_id,content,reply_to_id,created_at")
       .eq("palette_id", paletteId)
       .order("created_at", { ascending: true });
+
+    if (channelId) {
+      query = query.eq("channel_id", channelId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       return NextResponse.json(failure("MESSAGES_FETCH_FAILED", error.message), { status: 400 });
@@ -26,7 +36,7 @@ export async function GET(request: NextRequest) {
     const { data: profiles } = userIds.length
       ? await supabase
           .from("profiles")
-          .select("id,display_name,avatar_url,bio,notifications,visibility,created_at,updated_at")
+          .select(profileColumns)
           .in("id", userIds)
       : { data: [] as any[] };
 
@@ -61,8 +71,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = (await request.json()) as { paletteId?: string; content?: string; replyToId?: string | null };
+    const body = (await request.json()) as {
+      paletteId?: string;
+      channelId?: string | null;
+      content?: string;
+      replyToId?: string | null;
+    };
     const paletteId = body.paletteId ?? "";
+    const channelId = body.channelId ?? null;
     const content = body.content ?? "";
     const replyToId = body.replyToId ?? null;
 
@@ -79,7 +95,24 @@ export async function POST(request: NextRequest) {
       .eq("id", paletteId)
       .single();
 
-    const role = palette?.owner_id === auth.user.id ? "owner" : "member";
+    if (!palette) {
+      return NextResponse.json(failure("PALETTE_NOT_FOUND", "Palette not found."), { status: 404 });
+    }
+
+    if (channelId) {
+      const { data: channel } = await auth.supabase
+        .from("palette_channels")
+        .select("id")
+        .eq("id", channelId)
+        .eq("palette_id", paletteId)
+        .maybeSingle();
+
+      if (!channel) {
+        return NextResponse.json(failure("INVALID_INPUT", "channelId is invalid."), { status: 400 });
+      }
+    }
+
+    const role = palette.owner_id === auth.user.id ? "owner" : "member";
 
     await auth.supabase.from("palette_members").upsert(
       {
@@ -94,11 +127,12 @@ export async function POST(request: NextRequest) {
       .from("messages")
       .insert({
         palette_id: paletteId,
+        channel_id: channelId,
         user_id: auth.user.id,
         content: content.trim(),
         reply_to_id: replyToId,
       })
-      .select("id,palette_id,user_id,content,reply_to_id,created_at")
+      .select("id,palette_id,channel_id,user_id,content,reply_to_id,created_at")
       .single();
 
     if (error || !data) {
@@ -107,7 +141,7 @@ export async function POST(request: NextRequest) {
 
     const { data: profile } = await auth.supabase
       .from("profiles")
-      .select("id,display_name,avatar_url,bio,notifications,visibility,created_at,updated_at")
+      .select(profileColumns)
       .eq("id", auth.user.id)
       .maybeSingle();
 

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AuthGate } from "@/components/auth/AuthGate";
 import { apiFetch } from "@/lib/api/client";
 import type { ApiUserPage, UserProfile } from "@/lib/types";
-import { formatDisplayName } from "@/lib/chat/format";
+import { formatDisplayName, formatPublicId } from "@/lib/chat/format";
 import { UserAvatar } from "@/components/chat/UserAvatar";
 
 export default function UserPage({ params }: { params: { userId: string } }) {
@@ -30,17 +30,18 @@ export default function UserPage({ params }: { params: { userId: string } }) {
     void run();
   }, [params.userId]);
 
-  const displayName = formatDisplayName(profile?.display_name, params.userId);
+  const publicId = formatPublicId(profile?.public_id, params.userId);
+  const displayName = formatDisplayName(profile?.display_name, publicId);
 
   return (
     <AuthGate>
       <main>
         <section className="panel user-page">
           <div className="user-page-head">
-            <UserAvatar displayName={displayName} userId={params.userId} avatarUrl={profile?.avatar_url} />
+            <UserAvatar displayName={displayName} userId={publicId} avatarUrl={profile?.avatar_url} />
             <div>
               <h1>{displayName}</h1>
-              <p className="small">ユーザーID: {params.userId}</p>
+              <p className="small">ユーザーID: @{publicId}</p>
             </div>
           </div>
           {errorText ? <p className="small error-text">{errorText}</p> : null}

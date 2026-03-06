@@ -1,9 +1,18 @@
+export function formatPublicId(input: string | null | undefined, fallbackId: string) {
+  if (input && input.trim().length > 0) {
+    return input.trim();
+  }
+
+  const short = fallbackId.replace(/[^a-zA-Z0-9_]/g, "").slice(0, 8);
+  return `user_${short || "guest"}`;
+}
+
 export function formatDisplayName(input: string | null | undefined, fallbackId: string) {
   if (input && input.trim().length > 0) {
     return input.trim();
   }
 
-  return `user-${fallbackId.slice(0, 6)}`;
+  return formatPublicId(null, fallbackId);
 }
 
 export function avatarFallback(displayName: string, userId: string) {

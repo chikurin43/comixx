@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 type PaletteSubNavProps = {
   paletteId: string;
   isOwner: boolean;
+  canModerate?: boolean;
 };
 
 type PaletteNavItem = {
@@ -18,7 +19,7 @@ function normalizePaletteRoute(path: string) {
   return path.replace(/\/$/, "");
 }
 
-export function PaletteSubNav({ paletteId, isOwner }: PaletteSubNavProps) {
+export function PaletteSubNav({ paletteId, isOwner, canModerate = false }: PaletteSubNavProps) {
   const pathname = usePathname();
   const base = `/palette/${paletteId}`;
 
@@ -31,6 +32,10 @@ export function PaletteSubNav({ paletteId, isOwner }: PaletteSubNavProps) {
 
   if (isOwner) {
     items.splice(3, 0, { href: `${base}/votes/new`, label: "投票作成" });
+  }
+
+  if (canModerate) {
+    items.push({ href: `${base}/moderation`, label: "管理ログ" });
   }
 
   const current = normalizePaletteRoute(pathname);

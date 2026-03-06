@@ -20,10 +20,7 @@ export async function GET(request: NextRequest) {
 
     const ownerIds = [...new Set((data ?? []).map((palette) => palette.owner_id))];
     const { data: ownerProfiles } = ownerIds.length
-      ? await supabase
-          .from("profiles")
-          .select(profileColumns)
-          .in("id", ownerIds)
+      ? await supabase.from("profiles").select(profileColumns).in("id", ownerIds)
       : { data: [] as any[] };
 
     const profileMap = new Map((ownerProfiles ?? []).map((profile) => [profile.id, profile]));
@@ -88,10 +85,11 @@ export async function POST(request: NextRequest) {
       {
         palette_id: data.id,
         name: "general",
+        slug: "general",
         description: "Default channel",
         created_by: auth.user.id,
       },
-      { onConflict: "palette_id,name" },
+      { onConflict: "palette_id,slug" },
     );
 
     return NextResponse.json(success({ palette: data }), { status: 201 });

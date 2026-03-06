@@ -1,7 +1,7 @@
 import type { ApiResponse } from "@/lib/api/response";
 import { getBrowserSupabaseClient } from "@/lib/supabase/browser-client";
 
-type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
+type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 function asFailure(code: string, message: string): ApiResponse<unknown> {
   return {
@@ -93,6 +93,10 @@ export function apiPost<T extends ApiResponse<unknown> = ApiResponse<unknown>>(p
 
 export function apiPut<T extends ApiResponse<unknown> = ApiResponse<unknown>>(path: string, body?: unknown) {
   return apiFetch<T>(path, "PUT", body);
+}
+
+export function apiPatch<T extends ApiResponse<unknown> = ApiResponse<unknown>>(path: string, body?: unknown) {
+  return apiFetch<T>(path, "PATCH", body);
 }
 
 export function apiDelete<T extends ApiResponse<unknown> = ApiResponse<unknown>>(path: string) {

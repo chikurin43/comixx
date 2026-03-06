@@ -31,6 +31,7 @@ import type {
   ApiMessageCreate,
   ApiMessageList,
   ApiPaletteChannelCreate,
+  MemberRole,
   Message,
   MessageReaction,
   Palette,
@@ -72,6 +73,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
   const [palette, setPalette] = useState<Palette | null>(null);
   const [channels, setChannels] = useState<PaletteChannel[]>([]);
   const [ownerId, setOwnerId] = useState("");
+  const [viewerRole, setViewerRole] = useState<MemberRole>("member");
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
@@ -100,7 +102,8 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
   });
   const [overlay, setOverlay] = useState<OverlayState>({ open: false, x: 0, y: 0, userId: "", profile: null });
 
-  const isOwner = user?.id === ownerId;
+  const isOwner = viewerRole === "owner" || user?.id === ownerId;
+  const canModerate = viewerRole === "owner" || viewerRole === "moderator";
   const selectedChannel = channels.find((channel) => channel.id === selectedChannelId) ?? null;
   const messageMap = useMemo(() => new Map(messages.map((message) => [message.id, message])), [messages]);
 
@@ -118,21 +121,71 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     return { counts, mine };
   }, [reactions, user?.id]);
 
-  const loadMessages = useCallback(async () => {
-    const query = selectedChannelId
-      ? `/api/messages?paletteId=${params.paletteId}&channelId=${selectedChannelId}`
-      : `/api/messages?paletteId=${params.paletteId}`;
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
 
-    const response = await apiFetch<ApiMessageList>(query, "GET");
+  const mergeUniqueMessages = (incoming: Message[], current: Message[]) => {
+    const map = new Map<string, Message>();
+    [...incoming, ...current].forEach((message) => {
+      map.set(message.id, message);
+    });
 
-    if (!response.success) {
-      setErrorText(response.error.message);
-      return;
-    }
+    return [...map.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  };
 
-    setMessages(response.data.messages);
-    setReactions(response.data.reactions);
-  }, [params.paletteId, selectedChannelId]);
+  const loadMessages = useCallback(
+    async (options?: { cursor?: string | null; prepend?: boolean }) => {
+      const cursor = options?.cursor;
+      const prepend = options?.prepend ?? false;
+      const limit = 40;
+
+      if (prepend) {
+        setLoadingOlder(true);
+      } else {
+        setLoading(true);
+      }
+
+      const qs = new URLSearchParams({ paletteId: params.paletteId, limit: String(limit) });
+      if (selectedChannelId) {
+        qs.set("channelId", selectedChannelId);
+      }
+      if (cursor) {
+        qs.set("cursor", cursor);
+      }
+
+      const response = await apiFetch<ApiMessageList>(`/api/messages?${qs.toString()}`, "GET");
+
+      if (!response.success) {
+        setErrorText(response.error.message);
+        if (prepend) {
+          setLoadingOlder(false);
+        } else {
+          setLoading(false);
+        }
+        return;
+      }
+
+      setMessages((prev) => {
+        if (prepend) {
+          return mergeUniqueMessages(response.data.messages, prev);
+        }
+
+        return response.data.messages;
+      });
+      setReactions(response.data.reactions);
+      setNextCursor(response.data.nextCursor);
+      setHasMore(response.data.hasMore);
+      setErrorText("");
+
+      if (prepend) {
+        setLoadingOlder(false);
+      } else {
+        setLoading(false);
+      }
+    },
+    [params.paletteId, selectedChannelId],
+  );
 
   const scheduleLoadMessages = useCallback(() => {
     if (realtimeRefreshTimerRef.current !== null) {
@@ -158,6 +211,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
 
       setPalette(paletteData);
       setOwnerId(memberData.ownerId);
+      setViewerRole(memberData.members.find((member) => member.user_id === user?.id)?.role ?? "member");
       setChannels(channelData);
       setErrorText("");
 
@@ -174,7 +228,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     } finally {
       setLoading(false);
     }
-  }, [params.paletteId]);
+  }, [params.paletteId, user?.id]);
 
   useEffect(() => {
     void loadBase();
@@ -263,7 +317,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     }
 
     setSending(true);
-    const response = await apiFetch<ApiMessageCreate>('/api/messages', 'POST', {
+    const response = await apiFetch<ApiMessageCreate>("/api/messages", "POST", {
       paletteId: params.paletteId,
       channelId: selectedChannelId || null,
       content,
@@ -349,10 +403,10 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
       return;
     }
 
-    await apiFetch('/api/messages/reactions', 'POST', {
+    await apiFetch("/api/messages/reactions", "POST", {
       paletteId: params.paletteId,
       messageId: contextMenu.message.id,
-      emoji: '❤️',
+      emoji: "❤️",
     });
 
     setContextMenu((prev) => ({ ...prev, open: false }));
@@ -369,12 +423,27 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     textareaRef.current?.focus();
   };
 
-  const handleDeleteMessage = async () => {
+  const handleModerationAction = async (action: "hide" | "restore") => {
     if (!contextMenu.message) {
       return;
     }
 
-    await apiFetch(`/api/messages?messageId=${contextMenu.message.id}`, 'DELETE');
+    const reasonInput = window.prompt("理由を入力してください（任意）", "");
+    if (reasonInput === null) {
+      return;
+    }
+
+    const response = await apiFetch("/api/messages", "PATCH", {
+      messageId: contextMenu.message.id,
+      action,
+      reason: reasonInput,
+    });
+
+    if (!response.success) {
+      setErrorText(response.error.message);
+      return;
+    }
+
     setContextMenu((prev) => ({ ...prev, open: false }));
     await loadMessages();
   };
@@ -393,8 +462,8 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
   const jumpToMessage = (messageId: string) => {
     const target = document.getElementById(messageAnchorId(messageId));
     if (target) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      window.history.replaceState({}, '', `#${messageAnchorId(messageId)}`);
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      window.history.replaceState({}, "", `#${messageAnchorId(messageId)}`);
     }
   };
 
@@ -404,7 +473,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     }
 
     setCreatingChannel(true);
-    const response = await apiFetch<ApiPaletteChannelCreate>(`/api/palettes/${params.paletteId}/channels`, 'POST', {
+    const response = await apiFetch<ApiPaletteChannelCreate>(`/api/palettes/${params.paletteId}/channels`, "POST", {
       name: channelName,
       description: channelDescription,
     });
@@ -422,6 +491,16 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     setShowChannelModal(false);
   };
 
+  const selectedMessage = contextMenu.message;
+  const canHideSelected =
+    Boolean(selectedMessage) &&
+    !selectedMessage?.deleted_at &&
+    (canModerate || selectedMessage?.user_id === user?.id);
+  const canRestoreSelected =
+    Boolean(selectedMessage) &&
+    Boolean(selectedMessage?.deleted_at) &&
+    canModerate;
+
   return (
     <AuthGate>
       <main className="palette-chat-root">
@@ -436,13 +515,13 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
             </button>
           </div>
 
-          <PaletteSubNav paletteId={params.paletteId} isOwner={isOwner} />
+          <PaletteSubNav paletteId={params.paletteId} isOwner={isOwner} canModerate={canModerate} />
 
           {errorText ? <p className="small error-text">{errorText}</p> : null}
           {loading ? <p className="small">読み込み中...</p> : null}
 
           <div className="palette-chat-layout">
-            <aside className={`palette-channel-nav ${drawerOpen ? 'open' : ''}`}>
+            <aside className={`palette-channel-nav ${drawerOpen ? "open" : ""}`}>
               <div className="palette-channel-nav-head">
                 <h3>チャンネル</h3>
                 <button className="button secondary" type="button" onClick={() => setDrawerOpen(false)}>
@@ -485,11 +564,23 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
 
             <article className="palette-chat-frame" data-mode={composeMode}>
               <header className="palette-chat-frame-head">
-                <h2>{selectedChannel ? `#${selectedChannel.name}` : '#general'}</h2>
+                <h2>{selectedChannel ? `#${selectedChannel.name}` : "#general"}</h2>
                 <p className="small">固定幅チャット。メッセージ欄のみスクロールします。</p>
               </header>
 
               <div className="chat-list" role="log" aria-live="polite">
+                {hasMore ? (
+                  <div className="chat-load-more">
+                    <button
+                      type="button"
+                      className="button secondary"
+                      disabled={loadingOlder || !nextCursor}
+                      onClick={() => void loadMessages({ cursor: nextCursor, prepend: true })}
+                    >
+                      {loadingOlder ? "読み込み中..." : "以前の投稿を読み込む"}
+                    </button>
+                  </div>
+                ) : null}
                 {messages.map((message, index) => {
                   const previous = index > 0 ? messages[index - 1] : null;
                   const currentDay = new Date(message.created_at).toDateString();
@@ -499,7 +590,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                   const isMine = message.user_id === user?.id;
                   const publicId = formatPublicId(message.profile?.public_id, message.user_id);
                   const displayName = formatDisplayName(message.profile?.display_name, publicId);
-                  const replySource = message.reply_to_id ? messageMap.get(message.reply_to_id) : null;
+                  const replySource = message.parent_message_id ? messageMap.get(message.parent_message_id) : null;
 
                   return (
                     <div key={message.id}>
@@ -511,7 +602,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
 
                       <div
                         id={messageAnchorId(message.id)}
-                        className={`chat-row ${isMine ? 'mine' : 'other'}`}
+                        className={`chat-row ${isMine ? "mine" : "other"}`}
                         onContextMenu={(event) => handleMessageContextMenu(event, message)}
                       >
                         {!isMine ? (
@@ -525,7 +616,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                         ) : null}
 
                         <div className="chat-bubble-wrap">
-                          <div className={`chat-meta ${isMine ? 'mine' : 'other'}`}>
+                          <div className={`chat-meta ${isMine ? "mine" : "other"}`}>
                             {!isMine ? (
                               <button
                                 className="chat-user-button"
@@ -553,21 +644,21 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                                 type="button"
                                 onClick={() => jumpToMessage(replySource.id)}
                               >
-                                ↪ {formatDisplayName(replySource.profile?.display_name, formatPublicId(replySource.profile?.public_id, replySource.user_id))}: {replySource.content.replace(/\s+/g, ' ').slice(0, 80)}
+                                ↪ {formatDisplayName(replySource.profile?.display_name, formatPublicId(replySource.profile?.public_id, replySource.user_id))}: {replySource.content.replace(/\s+/g, " ").slice(0, 80)}
                               </button>
                             ) : null}
                             <ChatMarkdown content={message.content} />
                             <div className="reaction-line">
                               <button
-                                className={`reaction-chip ${reactionSummary.mine.has(message.id) ? 'active' : ''}`}
+                                className={`reaction-chip ${reactionSummary.mine.has(message.id) ? "active" : ""}`}
                                 type="button"
                                 onClick={() => {
                                   setContextMenu({ open: false, x: 0, y: 0, message });
                                   void (async () => {
-                                    await apiFetch('/api/messages/reactions', 'POST', {
+                                    await apiFetch("/api/messages/reactions", "POST", {
                                       paletteId: params.paletteId,
                                       messageId: message.id,
-                                      emoji: '❤️',
+                                      emoji: "❤️",
                                     });
                                     await loadMessages();
                                   })();
@@ -600,9 +691,9 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                     <button
                       type="button"
                       className="button secondary"
-                      data-active={composeMode === 'normal'}
+                      data-active={composeMode === "normal"}
                       onClick={() => {
-                        setComposeMode('normal');
+                        setComposeMode("normal");
                         setShowStructureMenu(false);
                       }}
                     >
@@ -611,18 +702,18 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                     <button
                       type="button"
                       className="button secondary"
-                      data-active={composeMode === 'advanced'}
-                      onClick={() => setComposeMode('advanced')}
+                      data-active={composeMode === "advanced"}
+                      onClick={() => setComposeMode("advanced")}
                     >
                       詳細
                     </button>
-                    {composeMode === 'normal' ? <span className="small">Shift+Enterで改行</span> : null}
+                    {composeMode === "normal" ? <span className="small">Shift+Enterで改行</span> : null}
                   </div>
 
                   {replyTarget ? (
                     <div className="reply-target">
                       <p>
-                        返信先: {formatDisplayName(replyTarget.profile?.display_name, formatPublicId(replyTarget.profile?.public_id, replyTarget.user_id))} - {replyTarget.content.replace(/\s+/g, ' ').slice(0, 120)}
+                        返信先: {formatDisplayName(replyTarget.profile?.display_name, formatPublicId(replyTarget.profile?.public_id, replyTarget.user_id))} - {replyTarget.content.replace(/\s+/g, " ").slice(0, 120)}
                       </p>
                       <button type="button" className="button secondary" onClick={() => setReplyTarget(null)}>
                         返信解除
@@ -630,15 +721,15 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                     </div>
                   ) : null}
 
-                  {composeMode === 'advanced' ? (
+                  {composeMode === "advanced" ? (
                     <div className="markdown-tools-area" onClick={(event) => event.stopPropagation()}>
                       <div className="markdown-toolbar">
-                        <button type="button" className="button secondary mini" onClick={() => insertMarkdown('**', '**')}>B</button>
-                        <button type="button" className="button secondary mini" onClick={() => insertMarkdown('_', '_')}>I</button>
-                        <button type="button" className="button secondary mini" onClick={() => insertMarkdown('`', '`')}>Code</button>
-                        <button type="button" className="button secondary mini" onClick={() => insertMarkdown('[', '](https://)')}>Link</button>
-                        <button type="button" className="button secondary mini" onClick={() => insertMarkdown('- ')}>List</button>
-                        <button type="button" className="button secondary mini" onClick={() => insertMarkdown('> ')}>Quote</button>
+                        <button type="button" className="button secondary mini" onClick={() => insertMarkdown("**", "**")}>B</button>
+                        <button type="button" className="button secondary mini" onClick={() => insertMarkdown("_", "_")}>I</button>
+                        <button type="button" className="button secondary mini" onClick={() => insertMarkdown("`", "`")}>Code</button>
+                        <button type="button" className="button secondary mini" onClick={() => insertMarkdown("[", "](https://)")}>Link</button>
+                        <button type="button" className="button secondary mini" onClick={() => insertMarkdown("- ")}>List</button>
+                        <button type="button" className="button secondary mini" onClick={() => insertMarkdown("> ")}>Quote</button>
                         <button
                           type="button"
                           className="button secondary mini"
@@ -652,10 +743,10 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                       </div>
                       {showStructureMenu ? (
                         <div className="markdown-structure-menu">
-                          <button type="button" onClick={() => insertSnippet('# ')}>Heading 1</button>
-                          <button type="button" onClick={() => insertSnippet('## ')}>Heading 2</button>
-                          <button type="button" onClick={() => insertSnippet('### ')}>Heading 3</button>
-                          <button type="button" onClick={() => insertSnippet('- item\n  - nested item\n    - deep item\n')}>ネストリスト</button>
+                          <button type="button" onClick={() => insertSnippet("# ")}>Heading 1</button>
+                          <button type="button" onClick={() => insertSnippet("## ")}>Heading 2</button>
+                          <button type="button" onClick={() => insertSnippet("### ")}>Heading 3</button>
+                          <button type="button" onClick={() => insertSnippet("- item\n  - nested item\n    - deep item\n")}>ネストリスト</button>
                         </div>
                       ) : null}
                     </div>
@@ -667,18 +758,18 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                     value={content}
                     onChange={(event) => setContent(event.target.value)}
                     onKeyDown={handleNormalModeKeyDown}
-                    placeholder={composeMode === 'normal' ? 'メッセージを入力して Enter で送信' : 'Markdown対応メッセージを入力'}
+                    placeholder={composeMode === "normal" ? "メッセージを入力して Enter で送信" : "Markdown対応メッセージを入力"}
                     minLength={1}
                     maxLength={4000}
-                    rows={composeMode === 'normal' ? 1 : 6}
+                    rows={composeMode === "normal" ? 1 : 6}
                     required
                   />
 
-                  {composeMode === 'advanced' ? (
+                  {composeMode === "advanced" ? (
                     <div className="markdown-detected">
                       <p className="small">プレビュー</p>
                       <div className="markdown-preview card">
-                        <ChatMarkdown content={content || '(プレビューなし)'} />
+                        <ChatMarkdown content={content || "(プレビューなし)"} />
                       </div>
                     </div>
                   ) : null}
@@ -686,7 +777,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
 
                 <div className="chat-compose-actions">
                   <button type="submit" className="button" disabled={sending || !content.trim()}>
-                    {sending ? '送信中...' : '送信'}
+                    {sending ? "送信中..." : "送信"}
                   </button>
                   <Link className="button secondary" href={`/palette/${params.paletteId}`}>
                     概要へ戻る
@@ -731,7 +822,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                 </label>
                 <div className="channel-modal-actions">
                   <button type="button" className="button secondary" onClick={() => setShowChannelModal(false)}>キャンセル</button>
-                  <button type="submit" className="button" disabled={creatingChannel}>{creatingChannel ? '作成中...' : '作成'}</button>
+                  <button type="submit" className="button" disabled={creatingChannel}>{creatingChannel ? "作成中..." : "作成"}</button>
                 </div>
               </form>
             </section>
@@ -743,8 +834,11 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
             <button type="button" onClick={() => void handleCopyLink()}>その投稿へのリンクをコピー</button>
             <button type="button" onClick={() => void handleReactionToggle()}>リアクション（❤️）</button>
             <button type="button" onClick={handleReplySelect}>返信</button>
-            {isOwner || contextMenu.message.user_id === user?.id ? (
-              <button type="button" className="danger" onClick={() => void handleDeleteMessage()}>投稿を削除</button>
+            {canHideSelected ? (
+              <button type="button" className="danger" onClick={() => void handleModerationAction("hide")}>投稿を非表示</button>
+            ) : null}
+            {canRestoreSelected ? (
+              <button type="button" onClick={() => void handleModerationAction("restore")}>投稿を復元</button>
             ) : null}
           </div>
         ) : null}
@@ -761,11 +855,4 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     </AuthGate>
   );
 }
-
-
-
-
-
-
-
 

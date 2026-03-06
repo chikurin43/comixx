@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { MouseEvent, useCallback, useEffect, useState } from "react";
+import { MouseEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { AuthGate } from "@/components/auth/AuthGate";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { UserAvatar } from "@/components/chat/UserAvatar";
@@ -10,7 +10,7 @@ import { PaletteSubNav } from "@/components/palette/PaletteSubNav";
 import { apiFetch } from "@/lib/api/client";
 import { formatDisplayName, formatPublicId } from "@/lib/chat/format";
 import { fetchPalette, fetchPaletteMembers, joinPalette } from "@/lib/palette/client";
-import type { Palette, PaletteMember, UserProfile } from "@/lib/types";
+import type { MemberRole, Palette, PaletteMember, UserProfile } from "@/lib/types";
 
 type OverlayState = {
   open: boolean;
@@ -25,25 +25,25 @@ export default function PaletteMembersPage({ params }: { params: { paletteId: st
   const [palette, setPalette] = useState<Palette | null>(null);
   const [members, setMembers] = useState<PaletteMember[]>([]);
   const [ownerId, setOwnerId] = useState("");
+  const [viewerRole, setViewerRole] = useState<MemberRole>("member");
   const [loading, setLoading] = useState(true);
   const [errorText, setErrorText] = useState("");
   const [overlay, setOverlay] = useState<OverlayState>({ open: false, x: 0, y: 0, userId: "", profile: null });
 
-  const isOwner = user?.id === ownerId;
+  const isOwner = viewerRole === "owner" || user?.id === ownerId;
+  const canModerate = useMemo(() => viewerRole === "owner" || viewerRole === "moderator", [viewerRole]);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
       await joinPalette(params.paletteId);
 
-      const [paletteData, membersData] = await Promise.all([
-        fetchPalette(params.paletteId),
-        fetchPaletteMembers(params.paletteId),
-      ]);
+      const [paletteData, membersData] = await Promise.all([fetchPalette(params.paletteId), fetchPaletteMembers(params.paletteId)]);
 
       setPalette(paletteData);
       setMembers(membersData.members);
       setOwnerId(membersData.ownerId);
+      setViewerRole(membersData.members.find((member) => member.user_id === user?.id)?.role ?? "member");
       setErrorText("");
     } catch (error) {
       const message = error instanceof Error ? error.message : "読み込みに失敗しました。";
@@ -51,7 +51,7 @@ export default function PaletteMembersPage({ params }: { params: { paletteId: st
     } finally {
       setLoading(false);
     }
-  }, [params.paletteId]);
+  }, [params.paletteId, user?.id]);
 
   useEffect(() => {
     void load();
@@ -61,6 +61,17 @@ export default function PaletteMembersPage({ params }: { params: { paletteId: st
     const response = await apiFetch(`/api/palettes/${params.paletteId}/members?userId=${targetUserId}`, "DELETE");
     if (!(response as { success?: boolean }).success) {
       const message = (response as { error?: { message?: string } }).error?.message ?? "削除に失敗しました。";
+      setErrorText(message);
+      return;
+    }
+
+    await load();
+  };
+
+  const changeRole = async (targetUserId: string, role: MemberRole) => {
+    const response = await apiFetch(`/api/palettes/${params.paletteId}/members`, "PATCH", { userId: targetUserId, role });
+    if (!(response as { success?: boolean }).success) {
+      const message = (response as { error?: { message?: string } }).error?.message ?? "ロール更新に失敗しました。";
       setErrorText(message);
       return;
     }
@@ -93,7 +104,7 @@ export default function PaletteMembersPage({ params }: { params: { paletteId: st
             </Link>
           </div>
 
-          <PaletteSubNav paletteId={params.paletteId} isOwner={isOwner} />
+          <PaletteSubNav paletteId={params.paletteId} isOwner={isOwner} canModerate={canModerate} />
 
           {errorText ? <p className="small error-text">{errorText}</p> : null}
           {loading ? <p className="small">読み込み中...</p> : null}
@@ -107,16 +118,12 @@ export default function PaletteMembersPage({ params }: { params: { paletteId: st
               return (
                 <article className={`member-row ${owner ? "owner" : ""}`} key={`${member.palette_id}-${member.user_id}`}>
                   <button type="button" className="member-profile" onClick={(event) => openMemberCard(event, member)}>
-                    <UserAvatar
-                      size="sm"
-                      displayName={displayName}
-                      userId={publicId}
-                      avatarUrl={member.profile?.avatar_url}
-                    />
+                    <UserAvatar size="sm" displayName={displayName} userId={publicId} avatarUrl={member.profile?.avatar_url} />
                     <span>
                       {displayName} <small>@{publicId}</small>
                     </span>
                     {owner ? <strong>OWNER</strong> : null}
+                    {!owner && member.role === "moderator" ? <strong>MOD</strong> : null}
                   </button>
 
                   <Link className="small" href={`/users/${publicId}`}>
@@ -124,9 +131,19 @@ export default function PaletteMembersPage({ params }: { params: { paletteId: st
                   </Link>
 
                   {isOwner && !owner ? (
-                    <button type="button" className="small action-link" onClick={() => void removeMember(member.user_id)}>
-                      退出
-                    </button>
+                    <>
+                      <select
+                        value={member.role}
+                        onChange={(event) => void changeRole(member.user_id, event.target.value as MemberRole)}
+                        className="small"
+                      >
+                        <option value="member">member</option>
+                        <option value="moderator">moderator</option>
+                      </select>
+                      <button type="button" className="small action-link" onClick={() => void removeMember(member.user_id)}>
+                        退出
+                      </button>
+                    </>
                   ) : null}
                 </article>
               );

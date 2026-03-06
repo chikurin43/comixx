@@ -1049,3 +1049,26 @@ textarea {
 
 
 
+
+.chat-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 0.4rem 0 0.7rem;
+}
+
+.moderation-log-list {
+  display: grid;
+  gap: 12px;
+}
+
+.moderation-log-item {
+  display: grid;
+  gap: 8px;
+}
+
+.moderation-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}

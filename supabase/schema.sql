@@ -568,3 +568,105 @@ begin
     alter publication supabase_realtime add table public.palette_poll_options;
   end if;
 end $$;
+
+-- v2 chat schema extensions
+alter table public.palette_members drop constraint if exists palette_members_role_check;
+alter table public.palette_members
+  add constraint palette_members_role_check check (role in ('owner', 'moderator', 'member'));
+
+alter table public.palette_channels add column if not exists slug text;
+update public.palette_channels
+set slug = lower(regexp_replace(coalesce(name, 'channel'), '[^a-zA-Z0-9]+', '-', 'g'))
+where slug is null or length(trim(slug)) = 0;
+
+update public.palette_channels
+set slug = concat('channel-', left(id::text, 8))
+where slug in ('', '-') or slug is null;
+
+create unique index if not exists channels_palette_slug_unique on public.palette_channels (palette_id, slug);
+
+alter table public.messages add column if not exists parent_message_id uuid references public.messages(id) on delete set null;
+alter table public.messages add column if not exists edited_at timestamptz;
+alter table public.messages add column if not exists deleted_at timestamptz;
+alter table public.messages add column if not exists metadata jsonb default '{}'::jsonb;
+
+update public.messages
+set parent_message_id = reply_to_id
+where parent_message_id is null and reply_to_id is not null;
+
+create table if not exists public.message_moderation_logs (
+  id uuid primary key default gen_random_uuid(),
+  palette_id uuid not null references public.palettes(id) on delete cascade,
+  message_id uuid not null references public.messages(id) on delete cascade,
+  actor_id uuid not null references auth.users(id) on delete cascade,
+  action text not null,
+  reason text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists message_moderation_logs_palette_idx
+  on public.message_moderation_logs (palette_id, created_at desc);
+
+alter table public.message_moderation_logs enable row level security;
+
+drop policy if exists "moderation logs readable by owner and moderators" on public.message_moderation_logs;
+create policy "moderation logs readable by owner and moderators"
+  on public.message_moderation_logs
+  for select
+  to authenticated
+  using (
+    exists (
+      select 1
+      from public.palette_members pm
+      where pm.palette_id = message_moderation_logs.palette_id
+        and pm.user_id = auth.uid()
+        and pm.role in ('owner', 'moderator')
+    )
+  );
+
+drop policy if exists "moderation logs insert by owner and moderators" on public.message_moderation_logs;
+create policy "moderation logs insert by owner and moderators"
+  on public.message_moderation_logs
+  for insert
+  to authenticated
+  with check (
+    exists (
+      select 1
+      from public.palette_members pm
+      where pm.palette_id = message_moderation_logs.palette_id
+        and pm.user_id = auth.uid()
+        and pm.role in ('owner', 'moderator')
+    )
+  );
+
+drop policy if exists "author can update own messages" on public.messages;
+create policy "author can update own messages"
+  on public.messages
+  for update
+  to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "owner and moderator can update messages" on public.messages;
+create policy "owner and moderator can update messages"
+  on public.messages
+  for update
+  to authenticated
+  using (
+    exists (
+      select 1
+      from public.palette_members pm
+      where pm.palette_id = messages.palette_id
+        and pm.user_id = auth.uid()
+        and pm.role in ('owner', 'moderator')
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.palette_members pm
+      where pm.palette_id = messages.palette_id
+        and pm.user_id = auth.uid()
+        and pm.role in ('owner', 'moderator')
+    )
+  );

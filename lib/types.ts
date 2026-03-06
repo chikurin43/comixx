@@ -1,6 +1,9 @@
 import type { ApiResponse } from "@/lib/api/response";
 
 export type AuthStatus = "unauthenticated" | "authenticated" | "loading";
+export type FetchStatus = "idle" | "loading" | "ready" | "error";
+export type SendStatus = "idle" | "sending" | "failed";
+export type MemberRole = "owner" | "moderator" | "member";
 
 export type UserProfile = {
   id: string;
@@ -28,7 +31,7 @@ export type Palette = {
 export type PaletteMember = {
   palette_id: string;
   user_id: string;
-  role: "owner" | "member";
+  role: MemberRole;
   joined_at: string;
   profile: UserProfile | null;
 };
@@ -37,6 +40,7 @@ export type PaletteChannel = {
   id: string;
   palette_id: string;
   name: string;
+  slug: string;
   description: string | null;
   created_by: string;
   created_at: string;
@@ -73,9 +77,29 @@ export type Message = {
   channel_id: string | null;
   user_id: string;
   content: string;
-  reply_to_id: string | null;
+  parent_message_id: string | null;
+  edited_at: string | null;
+  deleted_at: string | null;
+  metadata: Record<string, unknown> | null;
   created_at: string;
   profile: UserProfile | null;
+};
+
+export type ModerationLog = {
+  id: string;
+  palette_id: string;
+  message_id: string;
+  actor_id: string;
+  action: string;
+  reason: string | null;
+  created_at: string;
+  actor_profile: UserProfile | null;
+  message: {
+    id: string;
+    content: string;
+    user_id: string;
+    created_at: string;
+  } | null;
 };
 
 export type Vote = {
@@ -112,6 +136,12 @@ export type PalettePollsPayload = {
 export type MessageListPayload = {
   messages: Message[];
   reactions: MessageReaction[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+export type ModerationLogsPayload = {
+  logs: ModerationLog[];
 };
 
 export type VoteListPayload = {
@@ -139,6 +169,8 @@ export type ApiPalettePollCreate = ApiResponse<{ poll: PalettePoll }>;
 
 export type ApiMessageList = ApiResponse<MessageListPayload>;
 export type ApiMessageCreate = ApiResponse<{ message: Message }>;
+
+export type ApiModerationLogs = ApiResponse<ModerationLogsPayload>;
 
 export type ApiVoteList = ApiResponse<VoteListPayload>;
 export type ApiVoteCreate = ApiResponse<{ vote: Vote }>;

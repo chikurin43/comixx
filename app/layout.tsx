@@ -3,6 +3,7 @@ import Script from "next/script";
 import "./globals.css";
 import { Providers } from "@/app/providers";
 import { NavBar } from "@/components/NavBar";
+import { Analytics } from "@vercel/analytics/next";
 
 export const metadata: Metadata = {
   title: "ComixX",
@@ -21,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {children}
           <footer className="site-footer">©ComixX All rights reserved.</footer>
         </Providers>
+        <Analytics />
       </body>
     </html>
   );

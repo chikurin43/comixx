@@ -8,6 +8,7 @@ type PaletteSubNavProps = {
   paletteId: string;
   isOwner: boolean;
   canModerate?: boolean;
+  vertical?: boolean;
 };
 
 type PaletteNavItem = {
@@ -19,7 +20,7 @@ function normalizePaletteRoute(path: string) {
   return path.replace(/\/$/, "");
 }
 
-export function PaletteSubNav({ paletteId, isOwner, canModerate = false }: PaletteSubNavProps) {
+export function PaletteSubNav({ paletteId, isOwner, canModerate = false, vertical = false }: PaletteSubNavProps) {
   const pathname = usePathname();
   const base = `/palette/${paletteId}`;
 
@@ -27,11 +28,12 @@ export function PaletteSubNav({ paletteId, isOwner, canModerate = false }: Palet
     { href: base, label: "概要" },
     { href: `${base}/chat`, label: "チャット" },
     { href: `${base}/votes`, label: "投票" },
+    { href: `${base}/manga`, label: "漫画" },
     { href: `${base}/members`, label: "メンバー" },
   ];
 
   if (isOwner) {
-    items.splice(3, 0, { href: `${base}/votes/new`, label: "投票作成" });
+    items.splice(4, 0, { href: `${base}/votes/new`, label: "投票作成" });
   }
 
   if (canModerate) {
@@ -41,7 +43,7 @@ export function PaletteSubNav({ paletteId, isOwner, canModerate = false }: Palet
   const current = normalizePaletteRoute(pathname);
 
   return (
-    <nav className="palette-subnav" aria-label="パレットメニュー">
+    <nav className="palette-subnav" aria-label="パレットメニュー" data-vertical={vertical}>
       {items.map((item) => {
         const active = current === normalizePaletteRoute(item.href);
 

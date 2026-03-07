@@ -68,7 +68,12 @@ function ensureTextareaHeight(node: HTMLTextAreaElement | null) {
 export default function PaletteChatPage({ params }: { params: { paletteId: string } }) {
   const { user } = useAuth();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const chatListScrollRef = useRef<HTMLDivElement | null>(null);
+  const chatRootRef = useRef<HTMLElement | null>(null);
   const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollHeightBeforePrependRef = useRef<number>(0);
+  const initialScrollDoneRef = useRef(false);
+  const touchStartXRef = useRef<number>(0);
 
   const [palette, setPalette] = useState<Palette | null>(null);
   const [channels, setChannels] = useState<PaletteChannel[]>([]);
@@ -141,6 +146,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
       const limit = 40;
 
       if (prepend) {
+        scrollHeightBeforePrependRef.current = chatListScrollRef.current?.scrollHeight ?? 0;
         setLoadingOlder(true);
       } else {
         setLoading(true);
@@ -186,6 +192,16 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     },
     [params.paletteId, selectedChannelId],
   );
+
+  const handleChatListScroll = useCallback(() => {
+    const el = chatListScrollRef.current;
+    if (!el || loadingOlder || !hasMore || !nextCursor) {
+      return;
+    }
+    if (el.scrollTop <= 80) {
+      void loadMessages({ cursor: nextCursor, prepend: true });
+    }
+  }, [loadMessages, loadingOlder, hasMore, nextCursor]);
 
   const scheduleLoadMessages = useCallback(() => {
     if (realtimeRefreshTimerRef.current !== null) {
@@ -306,6 +322,39 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
       target.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }, [messages]);
+
+  useEffect(() => {
+    if (!loading && !loadingOlder && messages.length > 0 && chatListScrollRef.current) {
+      if (!initialScrollDoneRef.current) {
+        const el = chatListScrollRef.current;
+        el.scrollTop = el.scrollHeight;
+        initialScrollDoneRef.current = true;
+      }
+    }
+  }, [loading, loadingOlder, messages]);
+
+  useEffect(() => {
+    if (scrollHeightBeforePrependRef.current > 0 && !loadingOlder && chatListScrollRef.current) {
+      const el = chatListScrollRef.current;
+      const prev = scrollHeightBeforePrependRef.current;
+      const restore = () => {
+        if (!chatListScrollRef.current) return;
+        const next = chatListScrollRef.current.scrollHeight;
+        chatListScrollRef.current.scrollTop = next - prev;
+        scrollHeightBeforePrependRef.current = 0;
+      };
+      requestAnimationFrame(restore);
+    }
+  }, [loadingOlder, messages]);
+
+  useEffect(() => {
+    initialScrollDoneRef.current = false;
+  }, [selectedChannelId]);
+
+  useEffect(() => {
+    document.body.classList.add("chat-page");
+    return () => document.body.classList.remove("chat-page");
+  }, []);
 
   useEffect(() => {
     ensureTextareaHeight(textareaRef.current);
@@ -501,32 +550,67 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     Boolean(selectedMessage?.deleted_at) &&
     canModerate;
 
+  const channelToggleButton = (
+    <button
+      className="button secondary palette-channel-toggle"
+      type="button"
+      onClick={() => setDrawerOpen((prev) => !prev)}
+      aria-label="チャンネル一覧を開く"
+    >
+      ☰
+    </button>
+  );
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartXRef.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const startX = touchStartXRef.current;
+    const endX = e.changedTouches[0].clientX;
+    const deltaX = endX - startX;
+    if (startX < 60 && deltaX > 50) {
+      setDrawerOpen(true);
+    }
+  };
+
   return (
     <AuthGate>
-      <main className="palette-chat-root">
-        <section className="panel palette-chat-shell-v2">
-          <div className="panel-header">
-            <div>
-              <h1>{palette?.title ?? "Palette"}</h1>
-              <p className="small">{palette?.description || "説明はまだありません。"}</p>
+      <main
+        className="palette-chat-root"
+        ref={chatRootRef}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
+        <section className="palette-chat-shell-v2">
+          <div className="palette-chat-desktop-header">
+            <div className="palette-chat-header">
+              <div>
+                <h1>{palette?.title ?? "Palette"}</h1>
+              </div>
+              <button className="button secondary palette-mobile-toggle" type="button" onClick={() => setDrawerOpen((prev) => !prev)}>
+                チャンネル
+              </button>
             </div>
-            <button className="button secondary palette-mobile-toggle" type="button" onClick={() => setDrawerOpen((prev) => !prev)}>
-              チャンネル
-            </button>
+            <PaletteSubNav paletteId={params.paletteId} isOwner={isOwner} canModerate={canModerate} />
           </div>
-
-          <PaletteSubNav paletteId={params.paletteId} isOwner={isOwner} canModerate={canModerate} />
 
           {errorText ? <p className="small error-text">{errorText}</p> : null}
           {loading ? <p className="small">読み込み中...</p> : null}
 
           <div className="palette-chat-layout">
             <aside className={`palette-channel-nav ${drawerOpen ? "open" : ""}`}>
+              <div className="palette-channel-nav-mobile-header">
+                <div className="palette-channel-nav-mobile-header-title">
+                  <h1>{palette?.title ?? "Palette"}</h1>
+                  <button className="button secondary" type="button" onClick={() => setDrawerOpen(false)}>
+                    閉じる
+                  </button>
+                </div>
+                <PaletteSubNav paletteId={params.paletteId} isOwner={isOwner} canModerate={canModerate} vertical />
+              </div>
               <div className="palette-channel-nav-head">
                 <h3>チャンネル</h3>
-                <button className="button secondary" type="button" onClick={() => setDrawerOpen(false)}>
-                  閉じる
-                </button>
               </div>
 
               <div className="palette-channel-list">
@@ -564,11 +648,17 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
 
             <article className="palette-chat-frame" data-mode={composeMode}>
               <header className="palette-chat-frame-head">
-                <h2>{selectedChannel ? `#${selectedChannel.name}` : "#general"}</h2>
-                <p className="small">固定幅チャット。メッセージ欄のみスクロールします。</p>
+                <div className="palette-chat-frame-head-toggle">{channelToggleButton}</div>
+                <h2>{selectedChannel ? `#${selectedChannel.name}` : "loading..."}</h2>
               </header>
 
-              <div className="chat-list" role="log" aria-live="polite">
+              <div
+                ref={chatListScrollRef}
+                className="chat-list"
+                role="log"
+                aria-live="polite"
+                onScroll={handleChatListScroll}
+              >
                 {hasMore ? (
                   <div className="chat-load-more">
                     <button
@@ -779,9 +869,6 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                   <button type="submit" className="button" disabled={sending || !content.trim()}>
                     {sending ? "送信中..." : "送信"}
                   </button>
-                  <Link className="button secondary" href={`/palette/${params.paletteId}`}>
-                    概要へ戻る
-                  </Link>
                 </div>
               </form>
             </article>

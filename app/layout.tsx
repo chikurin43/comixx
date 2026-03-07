@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import "./globals.css";
 import { Providers } from "@/app/providers";
+import { ConditionalFooter } from "@/components/ConditionalFooter";
 import { NavBar } from "@/components/NavBar";
 
 export const metadata: Metadata = {
@@ -19,7 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <NavBar />
           {children}
-          <footer className="site-footer">©ComixX All rights reserved.</footer>
+          <ConditionalFooter />
         </Providers>
       </body>
     </html>

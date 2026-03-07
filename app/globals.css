@@ -813,9 +813,9 @@ textarea {
   background: #fff1e8;
 }
 
-/* Chat page: body max-height 100vh */
+/* Chat page: body max-height 100dvh */
 body.chat-page {
-  max-height: 100vh;
+  max-height: 100dvh;
   overflow: hidden;
 }
 

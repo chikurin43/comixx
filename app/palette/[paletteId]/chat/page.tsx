@@ -614,7 +614,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
               </div>
 
               <div className="palette-channel-list">
-                {channels.length === 0 ? <p className="small">チャンネルが未作成です。generalとして投稿できます。</p> : null}
+                {channels.length === 0 ? <p className="small">チャンネルが未作成です。</p> : null}
                 {channels.map((channel) => (
                   <button
                     key={channel.id}
@@ -630,20 +630,19 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                     {channel.description ? <small>{channel.description}</small> : null}
                   </button>
                 ))}
+                {isOwner ? (
+                  <button
+                    type="button"
+                    className="palette-channel-create-trigger"
+                    onClick={() => {
+                      setShowChannelModal(true);
+                      setDrawerOpen(false);
+                    }}
+                  >
+                    + チャンネル作成
+                  </button>
+                ) : null}
               </div>
-
-              {isOwner ? (
-                <button
-                  type="button"
-                  className="palette-channel-create-trigger"
-                  onClick={() => {
-                    setShowChannelModal(true);
-                    setDrawerOpen(false);
-                  }}
-                >
-                  + チャンネル作成
-                </button>
-              ) : null}
             </aside>
 
             <article className="palette-chat-frame" data-mode={composeMode}>

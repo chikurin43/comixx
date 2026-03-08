@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { TouchEvent } from "react";
 import { AuthGate } from "@/components/auth/AuthGate";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { ChatMarkdown } from "@/components/chat/ChatMarkdown";
@@ -36,6 +37,7 @@ import type {
   MessageReaction,
   Palette,
   PaletteChannel,
+  PaletteMember,
   UserProfile,
 } from "@/lib/types";
 
@@ -52,6 +54,7 @@ type OverlayState = {
   y: number;
   userId: string;
   profile: UserProfile | null;
+  role: MemberRole | null;
 };
 
 type ComposeMode = "normal" | "advanced";
@@ -74,11 +77,15 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
   const scrollHeightBeforePrependRef = useRef<number>(0);
   const initialScrollDoneRef = useRef(false);
   const touchStartXRef = useRef<number>(0);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
+  const longPressMessageRef = useRef<Message | null>(null);
 
   const [palette, setPalette] = useState<Palette | null>(null);
   const [channels, setChannels] = useState<PaletteChannel[]>([]);
   const [ownerId, setOwnerId] = useState("");
   const [viewerRole, setViewerRole] = useState<MemberRole>("member");
+  const [members, setMembers] = useState<PaletteMember[]>([]);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
@@ -86,6 +93,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
   const [content, setContent] = useState("");
   const [composeMode, setComposeMode] = useState<ComposeMode>("normal");
   const [replyTarget, setReplyTarget] = useState<Message | null>(null);
+  const [editTarget, setEditTarget] = useState<Message | null>(null);
   const [selectedChannelId, setSelectedChannelId] = useState<string>("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showStructureMenu, setShowStructureMenu] = useState(false);
@@ -105,10 +113,10 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     y: 0,
     message: null,
   });
-  const [overlay, setOverlay] = useState<OverlayState>({ open: false, x: 0, y: 0, userId: "", profile: null });
+  const [overlay, setOverlay] = useState<OverlayState>({ open: false, x: 0, y: 0, userId: "", profile: null, role: null });
 
   const isOwner = viewerRole === "owner" || user?.id === ownerId;
-  const canModerate = viewerRole === "owner" || viewerRole === "moderator";
+  const canModerate = viewerRole === "owner" || viewerRole === "moderator" || user?.id === ownerId;
   const selectedChannel = channels.find((channel) => channel.id === selectedChannelId) ?? null;
   const messageMap = useMemo(() => new Map(messages.map((message) => [message.id, message])), [messages]);
 
@@ -228,6 +236,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
       setPalette(paletteData);
       setOwnerId(memberData.ownerId);
       setViewerRole(memberData.members.find((member) => member.user_id === user?.id)?.role ?? "member");
+      setMembers(memberData.members);
       setChannels(channelData);
       setErrorText("");
 
@@ -361,15 +370,38 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
   }, [content, composeMode]);
 
   const sendMessage = async () => {
-    if (!content.trim() || sending) {
+    const trimmed = content.trim();
+    if (!trimmed || sending) {
       return;
     }
 
     setSending(true);
+
+    if (editTarget) {
+      const response = await apiFetch("/api/messages", "PATCH", {
+        messageId: editTarget.id,
+        action: "edit",
+        content: trimmed,
+      });
+
+      setSending(false);
+
+      if (!response.success) {
+        setErrorText(response.error.message);
+        return;
+      }
+
+      setEditTarget(null);
+      setContent("");
+      setReplyTarget(null);
+      await loadMessages();
+      return;
+    }
+
     const response = await apiFetch<ApiMessageCreate>("/api/messages", "POST", {
       paletteId: params.paletteId,
       channelId: selectedChannelId || null,
-      content,
+      content: trimmed,
       replyToId: replyTarget?.id ?? null,
     });
 
@@ -426,15 +458,75 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     setShowStructureMenu(false);
   };
 
+  const openContextMenuAt = (message: Message, x: number, y: number) => {
+    setContextMenu({
+      open: true,
+      x,
+      y,
+      message,
+    });
+  };
+
   const handleMessageContextMenu = (event: MouseEvent<HTMLDivElement>, message: Message) => {
     event.preventDefault();
     event.stopPropagation();
-    setContextMenu({
-      open: true,
-      x: event.clientX,
-      y: event.clientY,
-      message,
-    });
+    openContextMenuAt(message, event.clientX, event.clientY);
+  };
+
+  const handleMessageTouchStart = (event: TouchEvent<HTMLDivElement>, message: Message) => {
+    if (window.innerWidth > 980) {
+      return;
+    }
+    if (event.touches.length !== 1) {
+      return;
+    }
+
+    const touch = event.touches[0];
+    longPressStartRef.current = { x: touch.clientX, y: touch.clientY };
+    longPressMessageRef.current = message;
+
+    if (longPressTimerRef.current !== null) {
+      clearTimeout(longPressTimerRef.current);
+    }
+
+    longPressTimerRef.current = window.setTimeout(() => {
+      const start = longPressStartRef.current;
+      const targetMessage = longPressMessageRef.current;
+      if (!start || !targetMessage) {
+        return;
+      }
+      openContextMenuAt(targetMessage, start.x, start.y);
+      longPressTimerRef.current = null;
+    }, 500);
+  };
+
+  const handleMessageTouchMove = (event: TouchEvent<HTMLDivElement>) => {
+    const start = longPressStartRef.current;
+    if (!start || longPressTimerRef.current === null) {
+      return;
+    }
+    if (event.touches.length !== 1) {
+      return;
+    }
+
+    const touch = event.touches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (Math.hypot(dx, dy) > 10) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+      longPressStartRef.current = null;
+      longPressMessageRef.current = null;
+    }
+  };
+
+  const handleMessageTouchEnd = () => {
+    if (longPressTimerRef.current !== null) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressStartRef.current = null;
+    longPressMessageRef.current = null;
   };
 
   const handleCopyLink = async () => {
@@ -468,6 +560,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     }
 
     setReplyTarget(contextMenu.message);
+    setEditTarget(null);
     setContextMenu((prev) => ({ ...prev, open: false }));
     textareaRef.current?.focus();
   };
@@ -477,15 +570,23 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
       return;
     }
 
-    const reasonInput = window.prompt("理由を入力してください（任意）", "");
-    if (reasonInput === null) {
-      return;
+    const target = contextMenu.message;
+    let reason: string | null = null;
+
+    if (action === "hide" && target.user_id === user?.id) {
+      reason = null;
+    } else {
+      const reasonInput = window.prompt("理由を入力してください（任意）", "");
+      if (reasonInput === null) {
+        return;
+      }
+      reason = reasonInput;
     }
 
     const response = await apiFetch("/api/messages", "PATCH", {
-      messageId: contextMenu.message.id,
+      messageId: target.id,
       action,
-      reason: reasonInput,
+      reason,
     });
 
     if (!response.success) {
@@ -499,12 +600,33 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
 
   const openUserCard = (event: MouseEvent<HTMLElement>, message: Message) => {
     const rect = event.currentTarget.getBoundingClientRect();
+    const viewportWidth = window.innerWidth || 0;
+    const viewportHeight = window.innerHeight || 0;
+    const estimatedWidth = 320;
+    const estimatedHeight = 220;
+
+    let x = Math.max(rect.left, 8);
+    let y = rect.bottom + 8;
+
+    if (x + estimatedWidth > viewportWidth - 8) {
+      x = Math.max(8, viewportWidth - estimatedWidth - 8);
+    }
+    if (y + estimatedHeight > viewportHeight - 8) {
+      const above = rect.top - estimatedHeight - 8;
+      y = above > 8 ? above : Math.max(8, viewportHeight - estimatedHeight - 8);
+    }
+
+    const member = members.find((item) => item.user_id === message.user_id) ?? null;
+    const role: MemberRole | null =
+      member?.role ?? (message.user_id === ownerId ? "owner" : "member");
+
     setOverlay({
       open: true,
-      x: Math.max(rect.left, 16),
-      y: rect.bottom + 8,
+      x,
+      y,
       userId: message.user_id,
       profile: message.profile,
+      role,
     });
   };
 
@@ -550,6 +672,18 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     Boolean(selectedMessage?.deleted_at) &&
     canModerate;
 
+  const handleEditSelect = () => {
+    if (!contextMenu.message) {
+      return;
+    }
+
+    setEditTarget(contextMenu.message);
+    setReplyTarget(null);
+    setContent(contextMenu.message.content);
+    setContextMenu((prev) => ({ ...prev, open: false }));
+    textareaRef.current?.focus();
+  };
+
   const channelToggleButton = (
     <button
       className="button secondary palette-channel-toggle"
@@ -561,11 +695,14 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     </button>
   );
 
-  const handleTouchStart = (e: React.TouchEvent) => {
+  const handleTouchStart = (e: TouchEvent<HTMLElement>) => {
+    if (e.touches.length !== 1) {
+      return;
+    }
     touchStartXRef.current = e.touches[0].clientX;
   };
 
-  const handleTouchEnd = (e: React.TouchEvent) => {
+  const handleTouchEnd = (e: TouchEvent<HTMLElement>) => {
     const startX = touchStartXRef.current;
     const endX = e.changedTouches[0].clientX;
     const deltaX = endX - startX;
@@ -680,6 +817,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                   const publicId = formatPublicId(message.profile?.public_id, message.user_id);
                   const displayName = formatDisplayName(message.profile?.display_name, publicId);
                   const replySource = message.parent_message_id ? messageMap.get(message.parent_message_id) : null;
+                  const isHidden = Boolean(message.deleted_at);
 
                   return (
                     <div key={message.id}>
@@ -693,6 +831,9 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                         id={messageAnchorId(message.id)}
                         className={`chat-row ${isMine ? "mine" : "other"}`}
                         onContextMenu={(event) => handleMessageContextMenu(event, message)}
+                        onTouchStart={(event) => handleMessageTouchStart(event, message)}
+                        onTouchMove={handleMessageTouchMove}
+                        onTouchEnd={handleMessageTouchEnd}
                       >
                         {!isMine ? (
                           <UserAvatar
@@ -705,58 +846,72 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                         ) : null}
 
                         <div className="chat-bubble-wrap">
-                          <div className={`chat-meta ${isMine ? "mine" : "other"}`}>
-                            {!isMine ? (
-                              <button
-                                className="chat-user-button"
-                                type="button"
-                                onClick={(event) => openUserCard(event, message)}
-                              >
-                                {displayName}
-                              </button>
-                            ) : null}
-                            <time>{formatMessageTime(message.created_at)}</time>
-                            {isMine ? (
-                              <button
-                                className="chat-user-button"
-                                type="button"
-                                onClick={(event) => openUserCard(event, message)}
-                              >
-                                {displayName}
-                              </button>
-                            ) : null}
-                          </div>
-                          <div className="chat-bubble">
-                            {replySource ? (
-                              <button
-                                className="reply-preview"
-                                type="button"
-                                onClick={() => jumpToMessage(replySource.id)}
-                              >
-                                ↪ {formatDisplayName(replySource.profile?.display_name, formatPublicId(replySource.profile?.public_id, replySource.user_id))}: {replySource.content.replace(/\s+/g, " ").slice(0, 80)}
-                              </button>
-                            ) : null}
-                            <ChatMarkdown content={message.content} />
-                            <div className="reaction-line">
-                              <button
-                                className={`reaction-chip ${reactionSummary.mine.has(message.id) ? "active" : ""}`}
-                                type="button"
-                                onClick={() => {
-                                  setContextMenu({ open: false, x: 0, y: 0, message });
-                                  void (async () => {
-                                    await apiFetch("/api/messages/reactions", "POST", {
-                                      paletteId: params.paletteId,
-                                      messageId: message.id,
-                                      emoji: "❤️",
-                                    });
-                                    await loadMessages();
-                                  })();
-                                }}
-                              >
-                                ❤️ {reactionSummary.counts.get(message.id) ?? 0}
-                              </button>
+                          {isHidden ? (
+                            <div className="chat-hidden-notice">
+                              <span>{displayName} のメッセージは非表示にされました。</span>
                             </div>
-                          </div>
+                          ) : (
+                            <>
+                              <div className={`chat-meta ${isMine ? "mine" : "other"}`}>
+                                {!isMine ? (
+                                  <button
+                                    className="chat-user-button"
+                                    type="button"
+                                    onClick={(event) => openUserCard(event, message)}
+                                  >
+                                    {displayName}
+                                  </button>
+                                ) : null}
+                                <time>{formatMessageTime(message.created_at)}</time>
+                                {message.edited_at ? <span className="chat-edited-label">(編集済)</span> : null}
+                                {isMine ? (
+                                  <button
+                                    className="chat-user-button"
+                                    type="button"
+                                    onClick={(event) => openUserCard(event, message)}
+                                  >
+                                    {displayName}
+                                  </button>
+                                ) : null}
+                              </div>
+                              <div className="chat-bubble">
+                                {replySource ? (
+                                  <button
+                                    className="reply-preview"
+                                    type="button"
+                                    onClick={() => jumpToMessage(replySource.id)}
+                                  >
+                                    ↪{" "}
+                                    {formatDisplayName(
+                                      replySource.profile?.display_name,
+                                      formatPublicId(replySource.profile?.public_id, replySource.user_id),
+                                    )}
+                                    : {replySource.content.replace(/\s+/g, " ").slice(0, 80)}
+                                  </button>
+                                ) : null}
+                                <ChatMarkdown content={message.content} />
+                                <div className="reaction-line">
+                                  <button
+                                    className={`reaction-chip ${reactionSummary.mine.has(message.id) ? "active" : ""}`}
+                                    type="button"
+                                    onClick={() => {
+                                      setContextMenu({ open: false, x: 0, y: 0, message });
+                                      void (async () => {
+                                        await apiFetch("/api/messages/reactions", "POST", {
+                                          paletteId: params.paletteId,
+                                          messageId: message.id,
+                                          emoji: "❤️",
+                                        });
+                                        await loadMessages();
+                                      })();
+                                    }}
+                                  >
+                                    ❤️ {reactionSummary.counts.get(message.id) ?? 0}
+                                  </button>
+                                </div>
+                              </div>
+                            </>
+                          )}
                         </div>
 
                         {isMine ? (
@@ -920,6 +1075,9 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
             <button type="button" onClick={() => void handleCopyLink()}>その投稿へのリンクをコピー</button>
             <button type="button" onClick={() => void handleReactionToggle()}>リアクション（❤️）</button>
             <button type="button" onClick={handleReplySelect}>返信</button>
+            {contextMenu.message.user_id === user?.id ? (
+              <button type="button" onClick={handleEditSelect}>編集</button>
+            ) : null}
             {canHideSelected ? (
               <button type="button" className="danger" onClick={() => void handleModerationAction("hide")}>投稿を非表示</button>
             ) : null}
@@ -933,6 +1091,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
           <UserCardOverlay
             profile={overlay.profile}
             userId={overlay.userId}
+            role={overlay.role}
             position={{ x: overlay.x, y: overlay.y }}
             onClose={() => setOverlay((prev) => ({ ...prev, open: false }))}
           />

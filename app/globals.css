@@ -412,6 +412,18 @@ textarea {
   background: #f0f6ff;
 }
 
+.chat-hidden-notice {
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--muted);
+  padding: 0.25rem 0.5rem;
+}
+
+.chat-edited-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
 .chat-markdown {
   margin: 0;
   overflow-wrap: anywhere;
@@ -738,6 +750,7 @@ textarea {
   overflow-y: auto;
   padding-right: 0.1rem;
   min-height: 10rem;
+  align-content: start;
 }
 
 .palette-channel-item {

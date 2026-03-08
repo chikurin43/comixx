@@ -373,8 +373,9 @@ export async function PATCH(request: NextRequest) {
   try {
     const body = (await request.json()) as {
       messageId?: string;
-      action?: "hide" | "restore";
+      action?: "hide" | "restore" | "edit";
       reason?: string | null;
+      content?: string;
     };
 
     const messageId = body.messageId ?? "";
@@ -386,8 +387,61 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json(failure("INVALID_INPUT", "messageId is required."), { status: 400 });
     }
 
-    if (action !== "hide" && action !== "restore") {
-      return NextResponse.json(failure("INVALID_INPUT", "action must be hide or restore."), { status: 400 });
+    if (action !== "hide" && action !== "restore" && action !== "edit") {
+      return NextResponse.json(failure("INVALID_INPUT", "action must be hide, restore, or edit."), {
+        status: 400,
+      });
+    }
+
+    if (action === "edit") {
+      const content = typeof body.content === "string" ? body.content : "";
+      if (!validateRequiredText(content, 1, 4000)) {
+        return NextResponse.json(
+          failure("INVALID_INPUT", "Edited content must be between 1 and 4000 characters."),
+          { status: 400 },
+        );
+      }
+
+      const loaded = await loadMessageTarget(request, messageId);
+      if (!loaded.target) {
+        return NextResponse.json(
+          failure("MESSAGE_NOT_FOUND", loaded.error ?? "Message not found."),
+          { status: 404 },
+        );
+      }
+
+      const permission = await resolveActorPermission(loaded.supabase, loaded.target, auth.user.id);
+      if (!permission.isAuthor) {
+        return NextResponse.json(
+          failure("FORBIDDEN", "Only the author can edit this message."),
+          { status: 403 },
+        );
+      }
+
+      const now = new Date().toISOString();
+      const currentMetadata = parseMetadata(loaded.target.metadata);
+      const currentModeration = parseMetadata(currentMetadata.moderation);
+      const metadata = {
+        ...currentMetadata,
+        moderation: {
+          ...currentModeration,
+          last_action: "edit",
+          last_actor_id: auth.user.id,
+          last_at: now,
+        },
+      };
+
+      const trimmed = content.trim();
+      const { error: updateError } = await loaded.supabase
+        .from("messages")
+        .update({ content: trimmed, edited_at: now, metadata })
+        .eq("id", loaded.target.id);
+
+      if (updateError) {
+        return NextResponse.json(failure("MESSAGE_EDIT_FAILED", updateError.message), { status: 400 });
+      }
+
+      return NextResponse.json(success({ edited: true }));
     }
 
     if (action === "hide") {

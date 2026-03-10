@@ -76,10 +76,8 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
   const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollHeightBeforePrependRef = useRef<number>(0);
   const initialScrollDoneRef = useRef(false);
+  const shouldScrollToBottomRef = useRef(true);
   const touchStartXRef = useRef<number>(0);
-  const longPressTimerRef = useRef<number | null>(null);
-  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
-  const longPressMessageRef = useRef<Message | null>(null);
 
   const [palette, setPalette] = useState<Palette | null>(null);
   const [channels, setChannels] = useState<PaletteChannel[]>([]);
@@ -328,12 +326,15 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
 
     const target = document.querySelector(hash);
     if (target) {
+      // ハッシュ付きで開かれた場合は自動スクロールを優先し、以降は勝手に一番下にスクロールしない
+      shouldScrollToBottomRef.current = false;
       target.scrollIntoView({ behavior: "smooth", block: "center" });
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
     }
   }, [messages]);
 
   useEffect(() => {
-    if (!loading && !loadingOlder && messages.length > 0 && chatListScrollRef.current) {
+    if (!loading && !loadingOlder && messages.length > 0 && chatListScrollRef.current && shouldScrollToBottomRef.current) {
       if (!initialScrollDoneRef.current) {
         const el = chatListScrollRef.current;
         el.scrollTop = el.scrollHeight;
@@ -459,10 +460,25 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
   };
 
   const openContextMenuAt = (message: Message, x: number, y: number) => {
+    const viewportWidth = window.innerWidth || 0;
+    const viewportHeight = window.innerHeight || 0;
+    const estimatedWidth = 220;
+    const estimatedHeight = 180;
+
+    let nextX = x;
+    let nextY = y;
+
+    if (nextX + estimatedWidth > viewportWidth - 8) {
+      nextX = Math.max(8, viewportWidth - estimatedWidth - 8);
+    }
+    if (nextY + estimatedHeight > viewportHeight - 8) {
+      nextY = Math.max(8, viewportHeight - estimatedHeight - 8);
+    }
+
     setContextMenu({
       open: true,
-      x,
-      y,
+      x: nextX,
+      y: nextY,
       message,
     });
   };
@@ -473,60 +489,28 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     openContextMenuAt(message, event.clientX, event.clientY);
   };
 
-  const handleMessageTouchStart = (event: TouchEvent<HTMLDivElement>, message: Message) => {
+  const lastTapRef = useRef<{ time: number; messageId: string } | null>(null);
+
+  const handleMessageTouchEnd = (event: TouchEvent<HTMLDivElement>, message: Message) => {
     if (window.innerWidth > 980) {
       return;
     }
-    if (event.touches.length !== 1) {
+    if (event.changedTouches.length !== 1) {
       return;
     }
 
-    const touch = event.touches[0];
-    longPressStartRef.current = { x: touch.clientX, y: touch.clientY };
-    longPressMessageRef.current = message;
+    const now = Date.now();
+    const last = lastTapRef.current;
+    const tapX = event.changedTouches[0].clientX;
+    const tapY = event.changedTouches[0].clientY;
 
-    if (longPressTimerRef.current !== null) {
-      clearTimeout(longPressTimerRef.current);
-    }
-
-    longPressTimerRef.current = window.setTimeout(() => {
-      const start = longPressStartRef.current;
-      const targetMessage = longPressMessageRef.current;
-      if (!start || !targetMessage) {
-        return;
-      }
-      openContextMenuAt(targetMessage, start.x, start.y);
-      longPressTimerRef.current = null;
-    }, 500);
-  };
-
-  const handleMessageTouchMove = (event: TouchEvent<HTMLDivElement>) => {
-    const start = longPressStartRef.current;
-    if (!start || longPressTimerRef.current === null) {
-      return;
-    }
-    if (event.touches.length !== 1) {
+    if (last && last.messageId === message.id && now - last.time < 350) {
+      openContextMenuAt(message, tapX, tapY);
+      lastTapRef.current = null;
       return;
     }
 
-    const touch = event.touches[0];
-    const dx = touch.clientX - start.x;
-    const dy = touch.clientY - start.y;
-    if (Math.hypot(dx, dy) > 10) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-      longPressStartRef.current = null;
-      longPressMessageRef.current = null;
-    }
-  };
-
-  const handleMessageTouchEnd = () => {
-    if (longPressTimerRef.current !== null) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-    longPressStartRef.current = null;
-    longPressMessageRef.current = null;
+    lastTapRef.current = { time: now, messageId: message.id };
   };
 
   const handleCopyLink = async () => {
@@ -536,6 +520,15 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
 
     const link = `${window.location.origin}/palette/${params.paletteId}/chat#${messageAnchorId(contextMenu.message.id)}`;
     await navigator.clipboard.writeText(link);
+    setContextMenu((prev) => ({ ...prev, open: false }));
+  };
+
+  const handleCopyMessage = async () => {
+    if (!contextMenu.message) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(contextMenu.message.content);
     setContextMenu((prev) => ({ ...prev, open: false }));
   };
 
@@ -677,6 +670,10 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
       return;
     }
 
+    if (contextMenu.message.deleted_at) {
+      return;
+    }
+
     setEditTarget(contextMenu.message);
     setReplyTarget(null);
     setContent(contextMenu.message.content);
@@ -735,8 +732,18 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
           {errorText ? <p className="small error-text">{errorText}</p> : null}
           {loading ? <p className="small">読み込み中...</p> : null}
 
-          <div className="palette-chat-layout">
-            <aside className={`palette-channel-nav ${drawerOpen ? "open" : ""}`}>
+          <div
+            className="palette-chat-layout"
+            onClick={() => {
+              if (drawerOpen && window.innerWidth <= 980) {
+                setDrawerOpen(false);
+              }
+            }}
+          >
+            <aside
+              className={`palette-channel-nav ${drawerOpen ? "open" : ""}`}
+              onClick={(event) => event.stopPropagation()}
+            >
               <div className="palette-channel-nav-mobile-header">
                 <div className="palette-channel-nav-mobile-header-title">
                   <h1>{palette?.title ?? "Palette"}</h1>
@@ -831,9 +838,7 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                         id={messageAnchorId(message.id)}
                         className={`chat-row ${isMine ? "mine" : "other"}`}
                         onContextMenu={(event) => handleMessageContextMenu(event, message)}
-                        onTouchStart={(event) => handleMessageTouchStart(event, message)}
-                        onTouchMove={handleMessageTouchMove}
-                        onTouchEnd={handleMessageTouchEnd}
+                        onTouchEnd={(event) => handleMessageTouchEnd(event, message)}
                       >
                         {!isMine ? (
                           <UserAvatar
@@ -965,6 +970,25 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                     </div>
                   ) : null}
 
+                  {editTarget ? (
+                    <div className="reply-target">
+                      <p>
+                        編集中:{" "}
+                        {editTarget.content.replace(/\s+/g, " ").slice(0, 120)}
+                      </p>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        onClick={() => {
+                          setEditTarget(null);
+                          setContent("");
+                        }}
+                      >
+                        編集解除
+                      </button>
+                    </div>
+                  ) : null}
+
                   {composeMode === "advanced" ? (
                     <div className="markdown-tools-area" onClick={(event) => event.stopPropagation()}>
                       <div className="markdown-toolbar">
@@ -1075,7 +1099,8 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
             <button type="button" onClick={() => void handleCopyLink()}>その投稿へのリンクをコピー</button>
             <button type="button" onClick={() => void handleReactionToggle()}>リアクション（❤️）</button>
             <button type="button" onClick={handleReplySelect}>返信</button>
-            {contextMenu.message.user_id === user?.id ? (
+            <button type="button" onClick={() => void handleCopyMessage()}>メッセージをコピー</button>
+            {contextMenu.message.user_id === user?.id && !contextMenu.message.deleted_at ? (
               <button type="button" onClick={handleEditSelect}>編集</button>
             ) : null}
             {canHideSelected ? (

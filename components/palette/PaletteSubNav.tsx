@@ -32,10 +32,6 @@ export function PaletteSubNav({ paletteId, isOwner, canModerate = false, vertica
     { href: `${base}/members`, label: "メンバー" },
   ];
 
-  if (isOwner) {
-    items.splice(4, 0, { href: `${base}/votes/new`, label: "投票作成" });
-  }
-
   if (canModerate) {
     items.push({ href: `${base}/moderation`, label: "管理ログ" });
   }
@@ -45,7 +41,11 @@ export function PaletteSubNav({ paletteId, isOwner, canModerate = false, vertica
   return (
     <nav className="palette-subnav" aria-label="パレットメニュー" data-vertical={vertical}>
       {items.map((item) => {
-        const active = current === normalizePaletteRoute(item.href);
+        const normalizedHref = normalizePaletteRoute(item.href);
+        const isVotesRoot = normalizedHref === `${base}/votes`;
+        const active =
+          current === normalizedHref ||
+          (isVotesRoot && current.startsWith(`${base}/votes`));
 
         return (
           <Link key={item.href} className="palette-subnav-link" data-active={active} href={item.href as Route}>

@@ -20,6 +20,7 @@ export default function PaletteVotesPage({ params }: { params: { paletteId: stri
   const [errorText, setErrorText] = useState("");
 
   const isOwner = user?.id === ownerId;
+  const [viewerRole, setViewerRole] = useState<MemberRole>("member");
 
   const loadVotesForPolls = useCallback(
     async (pollList: PalettePoll[]) => {
@@ -50,6 +51,8 @@ export default function PaletteVotesPage({ params }: { params: { paletteId: stri
 
         setPalette(paletteData);
         setOwnerId(memberData.ownerId);
+        const role = memberData.members.find((member) => member.user_id === user?.id)?.role ?? "member";
+        setViewerRole(role);
         setPolls(pollData);
 
         await loadVotesForPolls(pollData);
@@ -64,6 +67,8 @@ export default function PaletteVotesPage({ params }: { params: { paletteId: stri
 
     void bootstrap();
   }, [loadVotesForPolls, params.paletteId]);
+
+  const canModerate = viewerRole === "owner" || viewerRole === "moderator" || user?.id === ownerId;
 
   const voteSummaries = useMemo(() => {
     const result: Record<string, Record<string, number>> = {};
@@ -130,7 +135,7 @@ export default function PaletteVotesPage({ params }: { params: { paletteId: stri
             ) : null}
           </div>
 
-          <PaletteSubNav paletteId={params.paletteId} isOwner={isOwner} />
+          <PaletteSubNav paletteId={params.paletteId} isOwner={isOwner} canModerate={canModerate} />
 
           {errorText ? <p className="small error-text">{errorText}</p> : null}
           {loading ? <p className="small">読み込み中...</p> : null}
@@ -154,12 +159,12 @@ export default function PaletteVotesPage({ params }: { params: { paletteId: stri
                         <button
                           key={option.id}
                           type="button"
-                          className="button secondary"
+                          className="button secondary palette-vote-option"
                           data-active={voted}
                           disabled={!poll.active}
                           onClick={() => void submitVote(poll.id, option.label)}
                         >
-                          {option.label} ({summary[option.label] ?? 0}票){voted ? " ← あなた" : ""}
+                          {option.label} ({summary[option.label] ?? 0}票)
                         </button>
                       );
                     })}

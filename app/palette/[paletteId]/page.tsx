@@ -58,6 +58,9 @@ export default function PaletteOverviewPage({ params }: { params: { paletteId: s
   }, [params.paletteId]);
 
   const isOwner = user?.id === ownerId;
+  const viewerMember = members.find((member) => member.user_id === user?.id) ?? null;
+  const viewerRole = viewerMember?.role ?? "member";
+  const canModerate = viewerRole === "owner" || viewerRole === "moderator" || user?.id === ownerId;
 
   const ownerProfile = useMemo(
     () => members.find((member) => member.user_id === ownerId)?.profile ?? palette?.owner_profile ?? null,
@@ -80,7 +83,7 @@ export default function PaletteOverviewPage({ params }: { params: { paletteId: s
             </Link>
           </div>
 
-          <PaletteSubNav paletteId={params.paletteId} isOwner={isOwner} />
+          <PaletteSubNav paletteId={params.paletteId} isOwner={isOwner} canModerate={canModerate} />
 
           {errorText ? <p className="small error-text">{errorText}</p> : null}
           {loading ? <p className="small">読み込み中...</p> : null}

@@ -5,7 +5,7 @@ import { AuthGate } from "@/components/auth/AuthGate";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { PaletteSubNav } from "@/components/palette/PaletteSubNav";
 import { fetchPalette, fetchPaletteMembers, joinPalette } from "@/lib/palette/client";
-import type { Palette } from "@/lib/types";
+import type { MemberRole, Palette } from "@/lib/types";
 
 type MangaTab = "view" | "post";
 
@@ -16,6 +16,7 @@ export default function PaletteMangaPage({ params }: { params: { paletteId: stri
   const [activeTab, setActiveTab] = useState<MangaTab>("view");
   const [loading, setLoading] = useState(true);
   const [errorText, setErrorText] = useState("");
+  const [viewerRole, setViewerRole] = useState<MemberRole>("member");
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -30,6 +31,8 @@ export default function PaletteMangaPage({ params }: { params: { paletteId: stri
 
         setPalette(paletteData);
         setOwnerId(memberData.ownerId);
+        const role = memberData.members.find((member) => member.user_id === user?.id)?.role ?? "member";
+        setViewerRole(role);
         setErrorText("");
       } catch (error) {
         const message = error instanceof Error ? error.message : "読み込みに失敗しました。";
@@ -43,6 +46,7 @@ export default function PaletteMangaPage({ params }: { params: { paletteId: stri
   }, [params.paletteId]);
 
   const isOwner = user?.id === ownerId;
+  const canModerate = viewerRole === "owner" || viewerRole === "moderator" || user?.id === ownerId;
 
   return (
     <AuthGate>
@@ -51,7 +55,7 @@ export default function PaletteMangaPage({ params }: { params: { paletteId: stri
           <h1>{palette?.title ?? "Palette"}</h1>
         </div>
 
-        <PaletteSubNav paletteId={params.paletteId} isOwner={isOwner} />
+        <PaletteSubNav paletteId={params.paletteId} isOwner={isOwner} canModerate={canModerate} />
 
         {errorText ? <p className="small error-text">{errorText}</p> : null}
         {loading ? <p className="small">読み込み中...</p> : null}

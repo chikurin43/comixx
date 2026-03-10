@@ -305,12 +305,16 @@ textarea {
   justify-content: center;
   font-weight: 700;
   overflow: hidden;
+  min-width: 44px;
+  min-height: 44px;
 }
 
 .user-avatar-sm {
   width: 32px;
   height: 32px;
   font-size: 0.8rem;
+  min-width: 32px;
+  min-height: 32px;
 }
 
 .user-avatar-md {
@@ -424,6 +428,13 @@ textarea {
   color: var(--muted);
 }
 
+.palette-vote-option.button.secondary[data-active="true"] {
+  border-color: color-mix(in srgb, var(--primary) 60%, var(--line));
+  background: #fff1e8;
+  color: var(--primary-strong);
+  font-weight: 700;
+}
+
 .chat-markdown {
   margin: 0;
   overflow-wrap: anywhere;
@@ -522,7 +533,7 @@ textarea {
   border-radius: 10px;
   padding: 0.45rem;
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr auto auto auto;
   gap: 0.45rem;
   align-items: center;
 }

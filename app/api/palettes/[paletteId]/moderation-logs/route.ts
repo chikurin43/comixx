@@ -13,7 +13,9 @@ function parseLimit(raw: string | null) {
   return Math.max(1, Math.min(100, Math.floor(parsed)));
 }
 
-export async function GET(request: NextRequest, { params }: { params: { paletteId: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ paletteId: string }> }) {
+  const { paletteId } = await params;
+
   const auth = await requireAuthUser(request);
   if (!auth.ok) {
     return NextResponse.json(failure("UNAUTHORIZED", auth.message), { status: 401 });
@@ -23,7 +25,7 @@ export async function GET(request: NextRequest, { params }: { params: { paletteI
     const { data: actorMember } = await auth.supabase
       .from("palette_members")
       .select("role")
-      .eq("palette_id", params.paletteId)
+      .eq("palette_id", paletteId)
       .eq("user_id", auth.user.id)
       .maybeSingle();
 
@@ -38,7 +40,7 @@ export async function GET(request: NextRequest, { params }: { params: { paletteI
     const { data: logs, error } = await auth.supabase
       .from("message_moderation_logs")
       .select("id,palette_id,message_id,actor_id,action,reason,created_at")
-      .eq("palette_id", params.paletteId)
+      .eq("palette_id", paletteId)
       .order("created_at", { ascending: false })
       .limit(limit);
 
@@ -75,3 +77,4 @@ export async function GET(request: NextRequest, { params }: { params: { paletteI
     return NextResponse.json(failure("MODERATION_LOGS_FETCH_FAILED", message), { status: 500 });
   }
 }
+

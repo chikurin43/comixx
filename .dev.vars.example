@@ -1,0 +1,10 @@
+# Used by Wrangler (OpenNext preview/dev).
+# Do NOT commit `.dev.vars` itself if it contains secrets.
+NEXTJS_ENV=development
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+
+# Optional (E2E)
+COMIXX_E2E_EMAIL=
+COMIXX_E2E_PASSWORD=

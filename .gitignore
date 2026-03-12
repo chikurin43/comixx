@@ -8,3 +8,12 @@ npm-debug.log*
 coverage
 playwright-report
 test-results
+
+.vercel
+
+# OpenNext
+.open-next
+
+.dev.vars
+
+.wrangler

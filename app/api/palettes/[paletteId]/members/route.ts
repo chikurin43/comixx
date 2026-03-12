@@ -14,10 +14,12 @@ function isMemberRole(role: string): role is MemberRole {
   return role === "owner" || role === "moderator" || role === "member";
 }
 
-export async function GET(request: NextRequest, { params }: { params: { paletteId: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ paletteId: string }> }) {
+  const { paletteId } = await params;
+
   try {
     const supabase = createSupabaseRouteClient(request);
-    const ownerId = await readOwnerId(supabase, params.paletteId);
+    const ownerId = await readOwnerId(supabase, paletteId);
 
     if (!ownerId) {
       return NextResponse.json(failure("PALETTE_NOT_FOUND", "Palette not found."), { status: 404 });
@@ -26,7 +28,7 @@ export async function GET(request: NextRequest, { params }: { params: { paletteI
     const { data, error } = await supabase
       .from("palette_members")
       .select("palette_id,user_id,role,joined_at")
-      .eq("palette_id", params.paletteId)
+      .eq("palette_id", paletteId)
       .order("joined_at", { ascending: true });
 
     if (error) {
@@ -52,14 +54,16 @@ export async function GET(request: NextRequest, { params }: { params: { paletteI
   }
 }
 
-export async function POST(request: NextRequest, { params }: { params: { paletteId: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ paletteId: string }> }) {
+  const { paletteId } = await params;
+
   const auth = await requireAuthUser(request);
   if (!auth.ok) {
     return NextResponse.json(failure("UNAUTHORIZED", auth.message), { status: 401 });
   }
 
   try {
-    const ownerId = await readOwnerId(auth.supabase, params.paletteId);
+    const ownerId = await readOwnerId(auth.supabase, paletteId);
     if (!ownerId) {
       return NextResponse.json(failure("PALETTE_NOT_FOUND", "Palette not found."), { status: 404 });
     }
@@ -70,7 +74,7 @@ export async function POST(request: NextRequest, { params }: { params: { palette
       .from("palette_members")
       .upsert(
         {
-          palette_id: params.paletteId,
+          palette_id: paletteId,
           user_id: auth.user.id,
           role,
         },
@@ -88,14 +92,16 @@ export async function POST(request: NextRequest, { params }: { params: { palette
   }
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: { paletteId: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ paletteId: string }> }) {
+  const { paletteId } = await params;
+
   const auth = await requireAuthUser(request);
   if (!auth.ok) {
     return NextResponse.json(failure("UNAUTHORIZED", auth.message), { status: 401 });
   }
 
   try {
-    const ownerId = await readOwnerId(auth.supabase, params.paletteId);
+    const ownerId = await readOwnerId(auth.supabase, paletteId);
     if (!ownerId) {
       return NextResponse.json(failure("PALETTE_NOT_FOUND", "Palette not found."), { status: 404 });
     }
@@ -119,7 +125,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { palett
     const { error } = await auth.supabase
       .from("palette_members")
       .update({ role })
-      .eq("palette_id", params.paletteId)
+      .eq("palette_id", paletteId)
       .eq("user_id", targetUserId);
 
     if (error) {
@@ -133,7 +139,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { palett
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { paletteId: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ paletteId: string }> }) {
+  const { paletteId } = await params;
+
   const auth = await requireAuthUser(request);
   if (!auth.ok) {
     return NextResponse.json(failure("UNAUTHORIZED", auth.message), { status: 401 });
@@ -145,7 +153,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { palet
   }
 
   try {
-    const ownerId = await readOwnerId(auth.supabase, params.paletteId);
+    const ownerId = await readOwnerId(auth.supabase, paletteId);
     if (!ownerId) {
       return NextResponse.json(failure("PALETTE_NOT_FOUND", "Palette not found."), { status: 404 });
     }
@@ -161,7 +169,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { palet
     const { error } = await auth.supabase
       .from("palette_members")
       .delete()
-      .eq("palette_id", params.paletteId)
+      .eq("palette_id", paletteId)
       .eq("user_id", targetUserId);
 
     if (error) {
@@ -174,3 +182,4 @@ export async function DELETE(request: NextRequest, { params }: { params: { palet
     return NextResponse.json(failure("MEMBER_REMOVE_FAILED", message), { status: 500 });
   }
 }
+

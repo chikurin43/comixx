@@ -25,12 +25,14 @@ async function findProfile(supabase: ReturnType<typeof createSupabaseRouteClient
   return byId.data ?? null;
 }
 
-export async function GET(request: NextRequest, { params }: { params: { userId: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ userId: string }> }) {
+  const { userId } = await params;
+
   try {
     const supabase = createSupabaseRouteClient(request);
-    const profile = await findProfile(supabase, params.userId);
+    const profile = await findProfile(supabase, userId);
 
-    const targetUserId = profile?.id ?? (uuidPattern.test(params.userId) ? params.userId : null);
+    const targetUserId = profile?.id ?? (uuidPattern.test(userId) ? userId : null);
 
     const [paletteCount, messageCount] = targetUserId
       ? await Promise.all([
@@ -42,7 +44,7 @@ export async function GET(request: NextRequest, { params }: { params: { userId: 
     return NextResponse.json(
       success({
         profile: profile ?? {
-          id: targetUserId ?? params.userId,
+          id: targetUserId ?? userId,
           public_id: null,
           display_name: null,
           avatar_url: null,
@@ -61,3 +63,4 @@ export async function GET(request: NextRequest, { params }: { params: { userId: 
     return NextResponse.json(failure("USER_FETCH_FAILED", message), { status: 500 });
   }
 }
+

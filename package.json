@@ -7,16 +7,24 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+
+    "pages:build": "opennextjs-cloudflare build",
+    "pages:preview": "npm run preview",
+    "pages:deploy": "npm run deploy",
+
     "test:e2e:install": "playwright install --with-deps chromium",
     "test": "vitest run --coverage",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.98.0",
-    "@vercel/analytics": "^1.6.1",
-    "@vercel/speed-insights": "^1.3.1",
-    "next": "14.2.18",
+    "next": "15.5.10",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-markdown": "^10.1.0",
@@ -24,15 +32,17 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.17.1",
     "@playwright/test": "^1.58.2",
     "@types/node": "22.10.1",
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",
     "@vitest/coverage-v8": "^4.0.18",
     "eslint": "8.57.1",
-    "eslint-config-next": "14.2.18",
+    "eslint-config-next": "15.5.10",
     "playwright": "^1.58.2",
     "typescript": "5.6.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "wrangler": "^4.72.0"
   }
 }

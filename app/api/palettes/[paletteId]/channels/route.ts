@@ -50,13 +50,15 @@ async function resolveUniqueSlug(
   return `${base}-${Date.now().toString(36)}`;
 }
 
-export async function GET(request: NextRequest, { params }: { params: { paletteId: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ paletteId: string }> }) {
+  const { paletteId } = await params;
+
   try {
     const supabase = createSupabaseRouteClient(request);
     const { data, error } = await supabase
       .from("palette_channels")
       .select("id,palette_id,name,slug,description,created_by,created_at")
-      .eq("palette_id", params.paletteId)
+      .eq("palette_id", paletteId)
       .order("created_at", { ascending: true });
 
     if (error) {
@@ -70,14 +72,16 @@ export async function GET(request: NextRequest, { params }: { params: { paletteI
   }
 }
 
-export async function POST(request: NextRequest, { params }: { params: { paletteId: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ paletteId: string }> }) {
+  const { paletteId } = await params;
+
   const auth = await requireAuthUser(request);
   if (!auth.ok) {
     return NextResponse.json(failure("UNAUTHORIZED", auth.message), { status: 401 });
   }
 
   try {
-    const ownerId = await readPaletteOwner(auth.supabase, params.paletteId);
+    const ownerId = await readPaletteOwner(auth.supabase, paletteId);
     if (!ownerId) {
       return NextResponse.json(failure("PALETTE_NOT_FOUND", "Palette not found."), { status: 404 });
     }
@@ -97,12 +101,12 @@ export async function POST(request: NextRequest, { params }: { params: { palette
       );
     }
 
-    const slug = await resolveUniqueSlug(auth.supabase, params.paletteId, name);
+    const slug = await resolveUniqueSlug(auth.supabase, paletteId, name);
 
     const { data, error } = await auth.supabase
       .from("palette_channels")
       .insert({
-        palette_id: params.paletteId,
+        palette_id: paletteId,
         name,
         slug,
         description: description || null,
@@ -122,14 +126,16 @@ export async function POST(request: NextRequest, { params }: { params: { palette
   }
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: { paletteId: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ paletteId: string }> }) {
+  const { paletteId } = await params;
+
   const auth = await requireAuthUser(request);
   if (!auth.ok) {
     return NextResponse.json(failure("UNAUTHORIZED", auth.message), { status: 401 });
   }
 
   try {
-    const ownerId = await readPaletteOwner(auth.supabase, params.paletteId);
+    const ownerId = await readPaletteOwner(auth.supabase, paletteId);
     if (!ownerId) {
       return NextResponse.json(failure("PALETTE_NOT_FOUND", "Palette not found."), { status: 404 });
     }
@@ -147,13 +153,13 @@ export async function PATCH(request: NextRequest, { params }: { params: { palett
       return NextResponse.json(failure("INVALID_INPUT", "channelId and valid name are required."), { status: 400 });
     }
 
-    const slug = await resolveUniqueSlug(auth.supabase, params.paletteId, name, channelId);
+    const slug = await resolveUniqueSlug(auth.supabase, paletteId, name, channelId);
 
     const { data, error } = await auth.supabase
       .from("palette_channels")
       .update({ name, slug, description: description || null })
       .eq("id", channelId)
-      .eq("palette_id", params.paletteId)
+      .eq("palette_id", paletteId)
       .select("id,palette_id,name,slug,description,created_by,created_at")
       .single();
 
@@ -168,14 +174,16 @@ export async function PATCH(request: NextRequest, { params }: { params: { palett
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { paletteId: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ paletteId: string }> }) {
+  const { paletteId } = await params;
+
   const auth = await requireAuthUser(request);
   if (!auth.ok) {
     return NextResponse.json(failure("UNAUTHORIZED", auth.message), { status: 401 });
   }
 
   try {
-    const ownerId = await readPaletteOwner(auth.supabase, params.paletteId);
+    const ownerId = await readPaletteOwner(auth.supabase, paletteId);
     if (!ownerId) {
       return NextResponse.json(failure("PALETTE_NOT_FOUND", "Palette not found."), { status: 404 });
     }
@@ -192,7 +200,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { palet
     const { count: existingCount } = await auth.supabase
       .from("palette_channels")
       .select("id", { count: "exact", head: true })
-      .eq("palette_id", params.paletteId);
+      .eq("palette_id", paletteId);
 
     const count = existingCount ?? 0;
     if (count <= 1) {
@@ -203,7 +211,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { palet
       .from("palette_channels")
       .delete()
       .eq("id", channelId)
-      .eq("palette_id", params.paletteId);
+      .eq("palette_id", paletteId);
 
     if (error) {
       return NextResponse.json(failure("CHANNEL_DELETE_FAILED", error.message), { status: 400 });
@@ -215,4 +223,5 @@ export async function DELETE(request: NextRequest, { params }: { params: { palet
     return NextResponse.json(failure("CHANNEL_DELETE_FAILED", message), { status: 500 });
   }
 }
+
 

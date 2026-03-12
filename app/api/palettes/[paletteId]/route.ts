@@ -4,14 +4,16 @@ import { createSupabaseRouteClient, requireAuthUser } from "@/lib/supabase/route
 
 const profileColumns = "id,public_id,display_name,avatar_url,bio,notifications,visibility,created_at,updated_at";
 
-export async function GET(request: NextRequest, { params }: { params: { paletteId: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ paletteId: string }> }) {
+  const { paletteId } = await params;
+
   try {
     const supabase = createSupabaseRouteClient(request);
 
     const { data: palette, error: paletteError } = await supabase
       .from("palettes")
       .select("id,title,genre,description,owner_id,is_public,created_at")
-      .eq("id", params.paletteId)
+      .eq("id", paletteId)
       .single();
 
     if (paletteError || !palette) {
@@ -31,7 +33,9 @@ export async function GET(request: NextRequest, { params }: { params: { paletteI
   }
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: { paletteId: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ paletteId: string }> }) {
+  const { paletteId } = await params;
+
   const auth = await requireAuthUser(request);
   if (!auth.ok) {
     return NextResponse.json(failure("UNAUTHORIZED", auth.message), { status: 401 });
@@ -48,7 +52,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { palett
     const { data: palette, error: paletteError } = await auth.supabase
       .from("palettes")
       .select("owner_id")
-      .eq("id", params.paletteId)
+      .eq("id", paletteId)
       .single();
 
     if (paletteError || !palette) {
@@ -67,7 +71,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { palett
     const { data, error } = await auth.supabase
       .from("palettes")
       .update(updateData)
-      .eq("id", params.paletteId)
+      .eq("id", paletteId)
       .select("id,title,genre,description,owner_id,is_public,created_at")
       .single();
 
@@ -82,7 +86,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { palett
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { paletteId: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ paletteId: string }> }) {
+  const { paletteId } = await params;
+
   const auth = await requireAuthUser(request);
   if (!auth.ok) {
     return NextResponse.json(failure("UNAUTHORIZED", auth.message), { status: 401 });
@@ -93,7 +99,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { palet
     const { data: palette, error: paletteError } = await auth.supabase
       .from("palettes")
       .select("owner_id")
-      .eq("id", params.paletteId)
+      .eq("id", paletteId)
       .single();
 
     if (paletteError || !palette) {
@@ -107,7 +113,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { palet
     const { error } = await auth.supabase
       .from("palettes")
       .delete()
-      .eq("id", params.paletteId);
+      .eq("id", paletteId);
 
     if (error) {
       return NextResponse.json(failure("PALETTE_DELETE_FAILED", error.message), { status: 400 });
@@ -119,3 +125,4 @@ export async function DELETE(request: NextRequest, { params }: { params: { palet
     return NextResponse.json(failure("PALETTE_DELETE_FAILED", message), { status: 500 });
   }
 }
+

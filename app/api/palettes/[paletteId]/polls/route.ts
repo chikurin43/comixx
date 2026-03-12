@@ -11,14 +11,16 @@ async function readPaletteOwner(
   return data?.owner_id ?? null;
 }
 
-export async function GET(request: NextRequest, { params }: { params: { paletteId: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ paletteId: string }> }) {
+  const { paletteId } = await params;
+
   try {
     const supabase = createSupabaseRouteClient(request);
 
     const { data: polls, error } = await supabase
       .from("palette_polls")
       .select("id,palette_id,title,description,created_by,active,created_at")
-      .eq("palette_id", params.paletteId)
+      .eq("palette_id", paletteId)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -57,14 +59,16 @@ export async function GET(request: NextRequest, { params }: { params: { paletteI
   }
 }
 
-export async function POST(request: NextRequest, { params }: { params: { paletteId: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ paletteId: string }> }) {
+  const { paletteId } = await params;
+
   const auth = await requireAuthUser(request);
   if (!auth.ok) {
     return NextResponse.json(failure("UNAUTHORIZED", auth.message), { status: 401 });
   }
 
   try {
-    const ownerId = await readPaletteOwner(auth.supabase, params.paletteId);
+    const ownerId = await readPaletteOwner(auth.supabase, paletteId);
     if (!ownerId) {
       return NextResponse.json(failure("PALETTE_NOT_FOUND", "Palette not found."), { status: 404 });
     }
@@ -94,7 +98,7 @@ export async function POST(request: NextRequest, { params }: { params: { palette
     const { data: poll, error: pollError } = await auth.supabase
       .from("palette_polls")
       .insert({
-        palette_id: params.paletteId,
+        palette_id: paletteId,
         title,
         description: description || null,
         created_by: auth.user.id,
@@ -129,3 +133,4 @@ export async function POST(request: NextRequest, { params }: { params: { palette
     return NextResponse.json(failure("POLL_CREATE_FAILED", message), { status: 500 });
   }
 }
+

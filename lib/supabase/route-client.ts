@@ -26,6 +26,25 @@ export function createSupabaseRouteClient(request: NextRequest) {
   });
 }
 
+export function createSupabaseAdminClient() {
+  const env = readPublicSupabaseEnv();
+  if (!env.ok) {
+    throw new Error(env.message);
+  }
+
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceRoleKey) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
+  }
+
+  return createClient(env.url, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
 export async function requireAuthUser(request: NextRequest) {
   const supabase = createSupabaseRouteClient(request);
   const { data, error } = await supabase.auth.getUser();

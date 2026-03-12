@@ -78,6 +78,8 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
   const initialScrollDoneRef = useRef(false);
   const shouldScrollToBottomRef = useRef(true);
   const touchStartXRef = useRef<number>(0);
+  const touchStartTimeRef = useRef<number>(0);
+  const touchStartMessageIdRef = useRef<string>("");
 
   const [palette, setPalette] = useState<Palette | null>(null);
   const [channels, setChannels] = useState<PaletteChannel[]>([]);
@@ -329,7 +331,9 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
       // ハッシュ付きで開かれた場合は自動スクロールを優先し、以降は勝手に一番下にスクロールしない
       shouldScrollToBottomRef.current = false;
       target.scrollIntoView({ behavior: "smooth", block: "center" });
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      // テキストフラグメントを含む可能性があるため、パスとクエリのみを保持してハッシュをクリア
+      const cleanUrl = window.location.pathname + window.location.search;
+      window.history.replaceState(null, "", cleanUrl);
     }
   }, [messages]);
 
@@ -484,12 +488,44 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
   };
 
   const handleMessageContextMenu = (event: MouseEvent<HTMLDivElement>, message: Message) => {
+    // モバイルでは長押しでコンテキストメニューが開かないようにする
+    if (window.innerWidth <= 980) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     openContextMenuAt(message, event.clientX, event.clientY);
   };
 
-  const lastTapRef = useRef<{ time: number; messageId: string } | null>(null);
+  const lastTapRef = useRef<{ time: number; messageId: string; x: number; y: number } | null>(null);
+
+  const handleMessageTouchStart = (event: TouchEvent<HTMLDivElement>, message: Message) => {
+    if (window.innerWidth > 980) {
+      return;
+    }
+    if (event.touches.length !== 1) {
+      return;
+    }
+    touchStartTimeRef.current = Date.now();
+    touchStartMessageIdRef.current = message.id;
+    // 長押しでブラウザのコンテキストメニューが開かないようにする
+    // タッチ開始時にpreventDefaultはしない（スクロールを阻害しない）
+    // 代わりにタッチ移動を監視
+  };
+
+  const handleMessageTouchMove = (event: TouchEvent<HTMLDivElement>, message: Message) => {
+    if (window.innerWidth > 980) {
+      return;
+    }
+    // タッチ移動があれば長押しではないと判断
+    const touchDuration = Date.now() - touchStartTimeRef.current;
+    if (touchDuration > 100) {
+      // タッチ移動が検出されたら、ダブルタップ検出をリセット
+      lastTapRef.current = null;
+    }
+  };
 
   const handleMessageTouchEnd = (event: TouchEvent<HTMLDivElement>, message: Message) => {
     if (window.innerWidth > 980) {
@@ -503,14 +539,38 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     const last = lastTapRef.current;
     const tapX = event.changedTouches[0].clientX;
     const tapY = event.changedTouches[0].clientY;
+    const TAP_TIMEOUT = 300;
+    const TAP_DISTANCE_THRESHOLD = 40;
+    const LONG_PRESS_THRESHOLD = 400; // 長押し判定閾値(ms)
 
-    if (last && last.messageId === message.id && now - last.time < 350) {
-      openContextMenuAt(message, tapX, tapY);
+    // 長押しの場合は無視（ダブルタップ検出しない）
+    const touchDuration = now - touchStartTimeRef.current;
+    if (touchDuration >= LONG_PRESS_THRESHOLD) {
       lastTapRef.current = null;
       return;
     }
 
-    lastTapRef.current = { time: now, messageId: message.id };
+    // 別のメッセージへのタップの場合はリセット
+    if (touchStartMessageIdRef.current !== message.id) {
+      lastTapRef.current = null;
+      return;
+    }
+
+    if (last && last.messageId === message.id && now - last.time < TAP_TIMEOUT) {
+      const dx = tapX - last.x;
+      const dy = tapY - last.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < TAP_DISTANCE_THRESHOLD) {
+        event.preventDefault();
+        event.stopPropagation();
+        openContextMenuAt(message, tapX, tapY);
+        lastTapRef.current = null;
+        return;
+      }
+    }
+
+    lastTapRef.current = { time: now, messageId: message.id, x: tapX, y: tapY };
   };
 
   const handleCopyLink = async () => {
@@ -627,7 +687,9 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
     const target = document.getElementById(messageAnchorId(messageId));
     if (target) {
       target.scrollIntoView({ behavior: "smooth", block: "center" });
-      window.history.replaceState({}, "", `#${messageAnchorId(messageId)}`);
+      // テキストフラグメントを含むURLをクリアして自動スクロールを防ぐ
+      const cleanHash = `#${messageAnchorId(messageId)}`;
+      window.history.replaceState({}, "", cleanHash);
     }
   };
 
@@ -838,6 +900,8 @@ export default function PaletteChatPage({ params }: { params: { paletteId: strin
                         id={messageAnchorId(message.id)}
                         className={`chat-row ${isMine ? "mine" : "other"}`}
                         onContextMenu={(event) => handleMessageContextMenu(event, message)}
+                        onTouchStart={(event) => handleMessageTouchStart(event, message)}
+                        onTouchMove={(event) => handleMessageTouchMove(event, message)}
                         onTouchEnd={(event) => handleMessageTouchEnd(event, message)}
                       >
                         {!isMine ? (

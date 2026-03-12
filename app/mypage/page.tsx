@@ -5,7 +5,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { AuthGate } from "@/components/auth/AuthGate";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { UserAvatar } from "@/components/chat/UserAvatar";
-import { apiGet, apiPut } from "@/lib/api/client";
+import { apiFetch, apiGet, apiPut } from "@/lib/api/client";
 import { formatDisplayName, formatPublicId } from "@/lib/chat/format";
 import { getBrowserSupabaseClient } from "@/lib/supabase/browser-client";
 import { validatePublicId } from "@/lib/validation";
@@ -148,6 +148,29 @@ export default function MyPage() {
     setAccountMessage("パスワードを更新しました。");
   };
 
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText !== "削除") {
+      setAccountMessage('確認のため「削除」と入力してください。');
+      return;
+    }
+
+    setAccountMessage("アカウントを削除中...");
+
+    const response = await apiFetch("/api/account", "DELETE");
+
+    if (!response.success) {
+      setAccountMessage(`アカウント削除失敗: ${response.error.message}`);
+      return;
+    }
+
+    // 削除成功後、ログアウトしてトップページへ
+    await signOut();
+    window.location.href = "/";
+  };
+
   const publicId = formatPublicId(settings.publicId, user?.id ?? "unknown");
   const displayName = formatDisplayName(settings.displayName, publicId);
 
@@ -286,6 +309,56 @@ export default function MyPage() {
             <button className="button secondary" type="button" onClick={() => void signOut()}>
               この端末からログアウト
             </button>
+          </div>
+
+          {/* アカウント削除 */}
+          <div className="card" style={{ marginTop: "2rem", borderColor: "var(--danger)" }}>
+            <h3 style={{ color: "var(--danger)" }}>アカウント削除</h3>
+            <p className="small">
+              アカウントを削除すると、すべてのデータ（プロフィール、メッセージ、作成したパレットなど）が完全に削除され、復元できません。
+            </p>
+            {!showDeleteConfirm ? (
+              <button
+                type="button"
+                className="button danger"
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                アカウントを削除
+              </button>
+            ) : (
+              <div style={{ marginTop: "1rem" }}>
+                <p className="small">
+                  本当に削除する場合は、「<strong>削除</strong>」と入力してください：
+                </p>
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="削除"
+                  style={{ marginTop: "0.5rem" }}
+                />
+                <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+                  <button
+                    type="button"
+                    className="button secondary"
+                    onClick={() => {
+                      setShowDeleteConfirm(false);
+                      setDeleteConfirmText("");
+                    }}
+                  >
+                    キャンセル
+                  </button>
+                  <button
+                    type="button"
+                    className="button danger"
+                    onClick={() => void handleDeleteAccount()}
+                    disabled={deleteConfirmText !== "削除"}
+                  >
+                    削除する
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </section>
       </main>

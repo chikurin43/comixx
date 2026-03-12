@@ -78,9 +78,16 @@ export default function PaletteOverviewPage({ params }: { params: { paletteId: s
         <section className="panel palette-overview">
           <div className="panel-header">
             <h1>{palette?.title ?? "Palette"}</h1>
-            <Link className="button secondary" href={`/palette/${params.paletteId}/chat`}>
-              チャットへ
-            </Link>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              {isOwner && (
+                <Link className="button secondary" href={`/palette/${params.paletteId}/settings`}>
+                  設定
+                </Link>
+              )}
+              <Link className="button secondary" href={`/palette/${params.paletteId}/chat`}>
+                チャットへ
+              </Link>
+            </div>
           </div>
 
           <PaletteSubNav paletteId={params.paletteId} isOwner={isOwner} canModerate={canModerate} />

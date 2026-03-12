@@ -20,6 +20,11 @@ function normalizePaletteRoute(path: string) {
   return path.replace(/\/$/, "");
 }
 
+function isOverviewActive(current: string, base: string): boolean {
+  // 設定ページでも概要タブをアクティブにする
+  return current === base || current === `${base}/settings`;
+}
+
 export function PaletteSubNav({ paletteId, isOwner, canModerate = false, vertical = false }: PaletteSubNavProps) {
   const pathname = usePathname();
   const base = `/palette/${paletteId}`;
@@ -32,10 +37,6 @@ export function PaletteSubNav({ paletteId, isOwner, canModerate = false, vertica
     { href: `${base}/members`, label: "メンバー" },
   ];
 
-  if (canModerate) {
-    items.push({ href: `${base}/moderation`, label: "管理ログ" });
-  }
-
   const current = normalizePaletteRoute(pathname);
 
   return (
@@ -43,7 +44,9 @@ export function PaletteSubNav({ paletteId, isOwner, canModerate = false, vertica
       {items.map((item) => {
         const normalizedHref = normalizePaletteRoute(item.href);
         const isVotesRoot = normalizedHref === `${base}/votes`;
+        const isOverview = normalizedHref === base;
         const active =
+          (isOverview && isOverviewActive(current, base)) ||
           current === normalizedHref ||
           (isVotesRoot && current.startsWith(`${base}/votes`));
 

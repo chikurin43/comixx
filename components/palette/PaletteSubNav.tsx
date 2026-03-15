@@ -33,6 +33,7 @@ export function PaletteSubNav({ paletteId, isOwner, canModerate = false, vertica
     { href: base, label: "概要" },
     { href: `${base}/chat`, label: "チャット" },
     { href: `${base}/votes`, label: "投票" },
+    { href: `${base}/posts`, label: "投稿" },
     { href: `${base}/manga`, label: "漫画" },
     { href: `${base}/members`, label: "メンバー" },
   ];

@@ -92,6 +92,17 @@ export async function POST(request: NextRequest) {
       { onConflict: "palette_id,slug" },
     );
 
+    await auth.supabase.from("post_categories").upsert(
+      [
+        { palette_id: data.id, name: "日記", slug: "diary", created_by: auth.user.id },
+        { palette_id: data.id, name: "ラフ", slug: "rough", created_by: auth.user.id },
+        { palette_id: data.id, name: "下書き", slug: "draft", created_by: auth.user.id },
+        { palette_id: data.id, name: "線画", slug: "lineart", created_by: auth.user.id },
+        { palette_id: data.id, name: "完成版", slug: "final", created_by: auth.user.id },
+      ],
+      { onConflict: "palette_id,slug" },
+    );
+
     return NextResponse.json(success({ palette: data }), { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

@@ -177,3 +177,58 @@ export type ApiVoteCreate = ApiResponse<{ vote: Vote }>;
 
 export type ApiProfile = ApiResponse<ProfilePayload>;
 export type ApiUserPage = ApiResponse<UserPagePayload>;
+
+export type PostCategory = {
+  id: string;
+  palette_id: string;
+  name: string;
+  slug: string;
+  created_by: string;
+  created_at: string;
+};
+
+export type PalettePost = {
+  id: string;
+  palette_id: string;
+  author_id: string;
+  title: string | null;
+  body: string | null;
+  category_id: string | null;
+  is_final: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PostImage = {
+  id: string;
+  post_id: string;
+  sort_order: number;
+  r2_key: string;
+  content_type: string;
+  bytes: number;
+  created_at: string;
+};
+
+export type TimelinePostCard = {
+  post: PalettePost;
+  category: { id: string; name: string; slug: string } | null;
+  images: Array<Pick<PostImage, "id" | "sort_order" | "bytes" | "content_type">>;
+  author_profile: UserProfile | null;
+};
+
+export type GalleryImage = {
+  image: Pick<PostImage, "id" | "sort_order" | "bytes" | "content_type">;
+  post_id: string;
+  palette_id: string;
+  created_at: string;
+  category: { id: string; name: string; slug: string } | null;
+};
+
+export type PostCategoriesPayload = { categories: Array<Pick<PostCategory, "id" | "name" | "slug">> };
+export type PostListPayload =
+  | { view: "timeline"; posts: TimelinePostCard[]; nextCursor: string | null; hasMore: boolean }
+  | { view: "gallery"; images: GalleryImage[]; nextCursor: string | null; hasMore: boolean };
+
+export type ApiPostCategories = ApiResponse<PostCategoriesPayload>;
+export type ApiPostList = ApiResponse<PostListPayload>;
+export type ApiPostCreate = ApiResponse<{ postId: string }>;

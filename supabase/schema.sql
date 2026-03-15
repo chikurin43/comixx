@@ -670,3 +670,193 @@ create policy "owner and moderator can update messages"
         and pm.role in ('owner', 'moderator')
     )
   );
+
+-- v2 posts (manga drafts / diaries etc)
+
+create table if not exists public.post_categories (
+  id uuid primary key default gen_random_uuid(),
+  palette_id uuid not null references public.palettes(id) on delete cascade,
+  name text not null,
+  slug text not null,
+  created_by uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (palette_id, name),
+  unique (palette_id, slug)
+);
+
+create table if not exists public.palette_posts (
+  id uuid primary key default gen_random_uuid(),
+  palette_id uuid not null references public.palettes(id) on delete cascade,
+  author_id uuid not null references auth.users(id) on delete cascade,
+  title text,
+  body text,
+  category_id uuid references public.post_categories(id) on delete set null,
+  is_final boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.post_images (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.palette_posts(id) on delete cascade,
+  sort_order integer not null default 0,
+  r2_key text not null,
+  content_type text not null,
+  bytes bigint not null default 0,
+  created_at timestamptz not null default now(),
+  unique (post_id, sort_order)
+);
+
+create index if not exists post_categories_palette_idx on public.post_categories (palette_id, created_at desc);
+create index if not exists palette_posts_palette_idx on public.palette_posts (palette_id, created_at desc);
+create index if not exists post_images_post_idx on public.post_images (post_id, sort_order);
+
+alter table public.post_categories enable row level security;
+alter table public.palette_posts enable row level security;
+alter table public.post_images enable row level security;
+
+-- Read: palette members can view
+drop policy if exists "post categories readable by palette members" on public.post_categories;
+create policy "post categories readable by palette members"
+  on public.post_categories
+  for select
+  to authenticated
+  using (
+    exists (
+      select 1
+      from public.palette_members pm
+      where pm.palette_id = post_categories.palette_id
+        and pm.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "posts readable by palette members" on public.palette_posts;
+create policy "posts readable by palette members"
+  on public.palette_posts
+  for select
+  to authenticated
+  using (
+    exists (
+      select 1
+      from public.palette_members pm
+      where pm.palette_id = palette_posts.palette_id
+        and pm.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "post images readable by palette members" on public.post_images;
+create policy "post images readable by palette members"
+  on public.post_images
+  for select
+  to authenticated
+  using (
+    exists (
+      select 1
+      from public.palette_members pm
+      join public.palette_posts p on p.palette_id = pm.palette_id
+      where pm.user_id = auth.uid()
+        and p.id = post_images.post_id
+    )
+  );
+
+-- Write: owner only (initial)
+drop policy if exists "owner can create post categories" on public.post_categories;
+create policy "owner can create post categories"
+  on public.post_categories
+  for insert
+  to authenticated
+  with check (
+    exists (
+      select 1
+      from public.palettes pal
+      where pal.id = post_categories.palette_id
+        and pal.owner_id = auth.uid()
+    )
+  );
+
+drop policy if exists "owner can create posts" on public.palette_posts;
+create policy "owner can create posts"
+  on public.palette_posts
+  for insert
+  to authenticated
+  with check (
+    exists (
+      select 1
+      from public.palettes pal
+      where pal.id = palette_posts.palette_id
+        and pal.owner_id = auth.uid()
+    )
+  );
+
+drop policy if exists "owner can update posts" on public.palette_posts;
+create policy "owner can update posts"
+  on public.palette_posts
+  for update
+  to authenticated
+  using (
+    exists (
+      select 1
+      from public.palettes pal
+      where pal.id = palette_posts.palette_id
+        and pal.owner_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.palettes pal
+      where pal.id = palette_posts.palette_id
+        and pal.owner_id = auth.uid()
+    )
+  );
+
+drop policy if exists "owner can create post images" on public.post_images;
+create policy "owner can create post images"
+  on public.post_images
+  for insert
+  to authenticated
+  with check (
+    exists (
+      select 1
+      from public.palette_posts p
+      join public.palettes pal on pal.id = p.palette_id
+      where p.id = post_images.post_id
+        and pal.owner_id = auth.uid()
+    )
+  );
+
+-- Backfill default categories per palette (safe to run multiple times)
+insert into public.post_categories (palette_id, name, slug, created_by)
+select p.id, '日記', 'diary', p.owner_id
+from public.palettes p
+where not exists (
+  select 1 from public.post_categories c where c.palette_id = p.id and c.slug = 'diary'
+);
+
+insert into public.post_categories (palette_id, name, slug, created_by)
+select p.id, 'ラフ', 'rough', p.owner_id
+from public.palettes p
+where not exists (
+  select 1 from public.post_categories c where c.palette_id = p.id and c.slug = 'rough'
+);
+
+insert into public.post_categories (palette_id, name, slug, created_by)
+select p.id, '下書き', 'draft', p.owner_id
+from public.palettes p
+where not exists (
+  select 1 from public.post_categories c where c.palette_id = p.id and c.slug = 'draft'
+);
+
+insert into public.post_categories (palette_id, name, slug, created_by)
+select p.id, '線画', 'lineart', p.owner_id
+from public.palettes p
+where not exists (
+  select 1 from public.post_categories c where c.palette_id = p.id and c.slug = 'lineart'
+);
+
+insert into public.post_categories (palette_id, name, slug, created_by)
+select p.id, '完成版', 'final', p.owner_id
+from public.palettes p
+where not exists (
+  select 1 from public.post_categories c where c.palette_id = p.id and c.slug = 'final'
+);

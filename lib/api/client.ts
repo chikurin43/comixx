@@ -83,6 +83,42 @@ export async function apiFetch<T extends ApiResponse<unknown> = ApiResponse<unkn
   }
 }
 
+export async function apiFetchForm<T extends ApiResponse<unknown> = ApiResponse<unknown>>(
+  path: string,
+  method: Exclude<HttpMethod, "GET">,
+  form: FormData,
+): Promise<T> {
+  try {
+    const client = getBrowserSupabaseClient();
+    const { data } = await client.auth.getSession();
+    const token = data.session?.access_token;
+
+    const response = await fetch(path, {
+      method,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: form,
+      cache: "no-store",
+    });
+
+    const payload = await readApiBody(response);
+
+    if (isApiResponse(payload)) {
+      return payload as T;
+    }
+
+    if (!response.ok) {
+      return asFailure("HTTP_ERROR", `Request failed: ${response.status}`) as T;
+    }
+
+    return asFailure("INVALID_RESPONSE", "Expected API response shape was not returned.") as T;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Network request failed.";
+    return asFailure("NETWORK_ERROR", message) as T;
+  }
+}
+
 export function apiGet<T extends ApiResponse<unknown> = ApiResponse<unknown>>(path: string) {
   return apiFetch<T>(path, "GET");
 }

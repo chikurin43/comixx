@@ -7,13 +7,10 @@ import { PaletteSubNav } from "@/components/palette/PaletteSubNav";
 import { fetchPalette, fetchPaletteMembers, joinPalette } from "@/lib/palette/client";
 import type { MemberRole, Palette } from "@/lib/types";
 
-type MangaTab = "view" | "post";
-
 export default function PaletteMangaPage({ params }: { params: { paletteId: string } }) {
   const { user } = useAuth();
   const [palette, setPalette] = useState<Palette | null>(null);
   const [ownerId, setOwnerId] = useState("");
-  const [activeTab, setActiveTab] = useState<MangaTab>("view");
   const [loading, setLoading] = useState(true);
   const [errorText, setErrorText] = useState("");
   const [viewerRole, setViewerRole] = useState<MemberRole>("member");
@@ -43,7 +40,7 @@ export default function PaletteMangaPage({ params }: { params: { paletteId: stri
     };
 
     void bootstrap();
-  }, [params.paletteId]);
+  }, [params.paletteId, user?.id]);
 
   const isOwner = user?.id === ownerId;
   const canModerate = viewerRole === "owner" || viewerRole === "moderator" || user?.id === ownerId;
@@ -60,37 +57,10 @@ export default function PaletteMangaPage({ params }: { params: { paletteId: stri
         {errorText ? <p className="small error-text">{errorText}</p> : null}
         {loading ? <p className="small">読み込み中...</p> : null}
 
-        <div className="palette-manga-tabs">
-          <button
-            type="button"
-            className="palette-manga-tab"
-            data-active={activeTab === "view"}
-            onClick={() => setActiveTab("view")}
-          >
-            漫画閲覧
-          </button>
-          {isOwner ? (
-            <button
-              type="button"
-              className="palette-manga-tab"
-              data-active={activeTab === "post"}
-              onClick={() => setActiveTab("post")}
-            >
-              漫画投稿
-            </button>
-          ) : null}
-        </div>
-
         <div className="palette-manga-content">
-          {activeTab === "view" ? (
-            <section className="palette-manga-placeholder">
-              <p>このパレットの漫画一覧です。準備中です。</p>
-            </section>
-          ) : (
-            <section className="palette-manga-placeholder">
-              <p>オーナーはここから漫画を投稿できます。準備中です。</p>
-            </section>
-          )}
+          <section className="palette-manga-placeholder">
+            <p>漫画ページ（完成版専用）は後で実装します。制作途中の共有は「投稿」タブを使ってください。</p>
+          </section>
         </div>
       </main>
     </AuthGate>

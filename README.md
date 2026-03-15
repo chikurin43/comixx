@@ -45,6 +45,12 @@ NEXT_PUBLIC_SUPABASE_URL=your-project-url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
+# R2 (S3 compatible API)
+R2_ACCOUNT_ID=your-cloudflare-account-id
+R2_ACCESS_KEY_ID=your-r2-access-key-id
+R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
+R2_BUCKET=your-r2-bucket
+
 # 任意: 開発診断用 read table（デフォルト: profiles）
 NEXT_PUBLIC_SUPABASE_PROBE_TABLE=profiles
 

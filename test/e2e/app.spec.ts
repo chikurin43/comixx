@@ -3,6 +3,11 @@ import { expect, test } from "@playwright/test";
 const e2eEmail = process.env.COMIXX_E2E_EMAIL;
 const e2ePassword = process.env.COMIXX_E2E_PASSWORD;
 const canRunAuthFlow = Boolean(e2eEmail && e2ePassword);
+const hasR2 =
+  Boolean(process.env.R2_ACCOUNT_ID) &&
+  Boolean(process.env.R2_ACCESS_KEY_ID) &&
+  Boolean(process.env.R2_SECRET_ACCESS_KEY) &&
+  Boolean(process.env.R2_BUCKET);
 
 async function signIn(page: Parameters<typeof test>[0]["page"]) {
   await page.goto("/login");
@@ -82,6 +87,71 @@ test("owner can create channel and post/reply/react in chat", async ({ page }) =
   await firstRow.click({ button: "right" });
   await page.getByRole("button", { name: "リアクション（❤️）" }).click();
   await expect(page.getByText("❤️ 1")).toBeVisible();
+});
+
+test("owner can create a text-only post", async ({ page }) => {
+  test.skip(!canRunAuthFlow, "COMIXX_E2E_EMAIL / COMIXX_E2E_PASSWORD is required.");
+
+  await signIn(page);
+
+  await page.getByRole("link", { name: "パレット作成" }).click();
+  await page.waitForURL("**/palette/new");
+
+  const paletteName = `e2e-posts-${Date.now()}`;
+  await page.getByLabel("パレット名").fill(paletteName);
+  await page.getByLabel("説明").fill("E2E投稿テスト用");
+  await page.getByRole("button", { name: "作成する" }).click();
+  await page.waitForURL("**/palette/**");
+
+  await page.getByRole("link", { name: "投稿" }).click();
+  await page.waitForURL("**/posts");
+  await page.getByRole("link", { name: "+ 新規投稿" }).click();
+  await page.waitForURL("**/posts/new");
+
+  const text = `body-${Date.now()}`;
+  await page.getByLabel(/本文/).fill(text);
+  await page.getByRole("button", { name: "投稿する" }).click();
+
+  await page.waitForURL("**/posts");
+  await expect(page.getByText(text)).toBeVisible();
+});
+
+test("owner can upload images to R2 in a post", async ({ page }) => {
+  test.skip(!canRunAuthFlow, "COMIXX_E2E_EMAIL / COMIXX_E2E_PASSWORD is required.");
+  test.skip(!hasR2, "R2 env vars are required for image upload E2E.");
+
+  await signIn(page);
+
+  await page.getByRole("link", { name: "パレット作成" }).click();
+  await page.waitForURL("**/palette/new");
+
+  const paletteName = `e2e-r2-${Date.now()}`;
+  await page.getByLabel("パレット名").fill(paletteName);
+  await page.getByLabel("説明").fill("E2E R2 upload");
+  await page.getByRole("button", { name: "作成する" }).click();
+  await page.waitForURL("**/palette/**");
+
+  await page.getByRole("link", { name: "投稿" }).click();
+  await page.waitForURL("**/posts");
+  await page.getByRole("link", { name: "+ 新規投稿" }).click();
+  await page.waitForURL("**/posts/new");
+
+  // 1x1 transparent PNG
+  const pngBase64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/awp9qkAAAAASUVORK5CYII=";
+  const png = Buffer.from(pngBase64, "base64");
+
+  await page.setInputFiles("input[type='file']", {
+    name: "tiny.png",
+    mimeType: "image/png",
+    buffer: png,
+  });
+
+  await page.getByRole("button", { name: "投稿する" }).click();
+  await page.waitForURL("**/posts");
+
+  // Thumbnail should appear.
+  await expect(page.locator(".post-card-image img").first()).toBeVisible();
 });
 
 
